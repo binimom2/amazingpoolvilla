@@ -282,33 +282,33 @@ td.td-paid input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-col
       <div class="fg g1" style="margin-bottom:10px;">
         <div class="mfield">
           <label>회사명 / 단체명</label>
-          <input type="text" id="m-company" placeholder="예: 위브투어 / 블루망고여행사"/>
+          <input type="text" id="m-company" placeholder=""/>
         </div>
       </div>
       <!-- 줄 2: 예약자명+손님명(한칸) / 연락처 -->
       <div class="fg" style="margin-bottom:10px;">
         <div class="mfield">
           <label>예약자명 / 손님명</label>
-          <input type="text" id="m-guest" placeholder="예: 홍길동 (에이전트) / 김철수 (손님)"/>
+          <input type="text" id="m-guest" placeholder=""/>
         </div>
         <div class="mfield">
           <label>연락처</label>
-          <input type="tel" id="m-phone" placeholder="010-0000-0000"/>
+          <input type="tel" id="m-phone" placeholder=""/>
         </div>
       </div>
       <!-- 줄 3: 인원수 / 룸타입 / 총 박수 -->
       <div class="fg g3" style="margin-bottom:4px;">
         <div class="mfield">
           <label>인원수 (명)</label>
-          <input type="number" id="m-people" min="1" placeholder="4"/>
+          <input type="number" id="m-people" min="1" placeholder=""/>
         </div>
         <div class="mfield">
           <label>룸타입 (Bed)</label>
-          <input type="number" id="m-bedtype" min="1" max="9" placeholder="예: 4"/>
+          <input type="number" id="m-bedtype" min="1" max="9" placeholder=""/>
         </div>
         <div class="mfield">
           <label>총 박수 🌙 (N)</label>
-          <input type="number" id="m-nights" min="1" max="90" placeholder="예: 4" oninput="onNightsChange()"/>
+          <input type="number" id="m-nights" min="1" max="90" placeholder="" oninput="onNightsChange()"/>
         </div>
       </div>
 
@@ -317,7 +317,7 @@ td.td-paid input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-col
       <div class="fg" style="margin-bottom:4px;">
         <div class="mfield">
           <label>박당 금액 (฿ 바트)</label>
-          <input type="number" id="m-price" min="0" placeholder="8300" oninput="calcTotal()"/>
+          <input type="number" id="m-price" min="0" placeholder="" oninput="calcTotal()"/>
         </div>
         <div class="mfield">
           <label>총 숙박 금액 (฿ 바트)</label>
@@ -348,11 +348,11 @@ td.td-paid input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-col
       <div class="fg">
         <div class="mfield">
           <label>비고 1 <span style="color:#1e7a45;font-size:9px;font-weight:700;">(달력 노출)</span></label>
-          <textarea id="m-memo1" placeholder="달력 비고란에 표시될 내용..."></textarea>
+          <textarea id="m-memo1" placeholder=""></textarea>
         </div>
         <div class="mfield">
           <label>비고 2</label>
-          <textarea id="m-memo2" placeholder="내부 메모, 추가 특이사항..."></textarea>
+          <textarea id="m-memo2" placeholder=""></textarea>
         </div>
       </div>
 
