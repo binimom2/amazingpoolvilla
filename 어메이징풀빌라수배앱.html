@@ -241,14 +241,12 @@ td.td-paid input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-col
 
 <div class="toolbar">
   <label>📅 월 선택</label>
-  <input type="month" id="monthPicker"/>
-  <button class="tbtn tbtn-apply" onclick="renderTable()">적용</button>
+  <input type="month" id="monthPicker" onchange="renderTable()"/>
   <button class="tbtn" onclick="goPrev()">◀ 이전달</button>
   <button class="tbtn" onclick="goNext()">다음달 ▶</button>
   <div style="margin-left:auto;display:flex;gap:6px;">
     <button class="tbtn" onclick="window.print()">🖨 인쇄</button>
     <button class="tbtn" style="background:#1d6f42;color:#fff;border-color:#1d6f42;" onclick="downloadExcel()">📊 엑셀저장</button>
-    <button class="tbtn tbtn-save" onclick="doSave()">💾 저장</button>
     <button class="tbtn tbtn-del" onclick="clearAll()">🗑 초기화</button>
   </div>
 </div>
@@ -441,9 +439,13 @@ function applyRoleUI(){
   logoutBtn.onclick=doLogout;
   toolbar.appendChild(logoutBtn);
 
-  // OPERATOR: 저장/초기화/인쇄 버튼 숨김, 셀 클릭 비활성화
+  // OPERATOR: 저장/인쇄 버튼 숨김, 셀 클릭 비활성화
   if(role==='operator'){
-    document.querySelectorAll('.tbtn-save,.tbtn-del').forEach(b=>b.style.display='none');
+    document.querySelectorAll('.tbtn-save').forEach(b=>b.style.display='none');
+  }
+  // ADMIN이 아니면 초기화 버튼 숨김
+  if(role!=='admin'){
+    document.querySelectorAll('.tbtn-del').forEach(b=>b.style.display='none');
   }
 }
 
@@ -602,15 +604,18 @@ async function doSave(){
     const date=k.split('_')[0];const[y,mo]=date.split('-');
     const mk=`villa_${y}_${mo}`;if(!byM[mk])byM[mk]={};byM[mk][k]=v;
   });
+  let hasError=false;
   for(const[k,v] of Object.entries(byM)){
-    await sb.from('villa_data').upsert({data_key:k,data:v,updated_at:new Date().toISOString()});
+    const{error}=await sb.from('villa_data').upsert({data_key:k,data:v,updated_at:new Date().toISOString()});
+    if(error){hasError=true;console.error('저장 오류:',error);}
   }
-  showToast('💾 저장되었습니다');
+  if(hasError) showToast('❌ 저장 실패: '+((await sb.from('villa_data').upsert({data_key:'_test',data:{},updated_at:new Date().toISOString()})).error?.message||'Supabase 연결 오류'));
 }
 
 async function loadMonth(y,m){
   const key=sKey(y,m);
   const{data,error}=await sb.from('villa_data').select('data').eq('data_key',key).single();
+  if(error&&error.code!=='PGRST116') console.error('불러오기 오류:',error);
   if(data&&data.data) Object.assign(allData,data.data);
 }
 async function clearAll(){
