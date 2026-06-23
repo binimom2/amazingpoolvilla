@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8"/>
@@ -37,9 +37,9 @@ table{border-collapse:collapse;min-width:1000px;width:100%;}
 
 /* 헤더 행 고정 (위쪽) */
 thead tr.tr-rooms th{background:#fff3e6;border:1px solid #c8843a;text-align:center;font-size:11px;font-weight:700;color:#c8390a;padding:5px 3px;white-space:nowrap;position:sticky;top:0;z-index:3;}
-thead tr.tr-rooms th.th-date{background:#fff3e6;color:#333;font-size:10px;min-width:70px;position:sticky;top:0;left:0;z-index:4;}
-thead tr.tr-sub th{background:#fce9d4;border:1px solid #c8843a;text-align:center;font-size:10px;font-weight:600;color:#444;padding:3px 2px;white-space:nowrap;position:sticky;top:0;z-index:3;}
-thead tr.tr-sub th:first-child{position:sticky;top:0;left:0;z-index:4;}
+thead tr.tr-rooms th.th-date{background:#fff3e6;color:#333;font-size:10px;min-width:68px;position:sticky;top:0;left:0;z-index:4;}
+thead tr.tr-sub th{background:#fce9d4;border:1px solid #c8843a;text-align:center;font-size:10px;font-weight:600;color:#444;padding:3px 2px;white-space:nowrap;position:sticky;top:var(--tr-rooms-h,28px);z-index:3;}
+thead tr.tr-sub th:first-child{position:sticky;top:var(--tr-rooms-h,28px);left:0;z-index:4;}
 
 tbody tr td{border:1px solid #e0dbd4;padding:0;vertical-align:top;}
 tbody tr.tr-today td{background:#fffbe6 !important;}
@@ -51,7 +51,7 @@ tbody tr.tr-sun td.td-date{background:#fff3f3;}
 tbody tr.tr-today td.td-date{background:#fffbe6 !important;}
 
 /* 날짜 열 고정 (왼쪽) */
-td.td-date{text-align:center;padding:3px 4px;min-width:70px;border-right:2px solid #c8843a !important;white-space:nowrap;vertical-align:middle;position:sticky;left:0;z-index:2;background:#fff;}
+td.td-date{text-align:center;padding:3px 4px;min-width:68px;border-right:2px solid #c8843a !important;white-space:nowrap;vertical-align:middle;position:sticky;left:0;z-index:2;background:#fff;}
 .date-line1{font-size:11px;font-weight:700;color:#222;display:inline-block;}
 .date-line2{font-size:9px;margin-top:1px;color:#888;}
 .c-sat .date-line1,.c-sat .date-line2{color:#1a50cc;}
@@ -62,7 +62,7 @@ td.td-rs{border-left:2px solid #c8843a !important;}
 
 /* ── CONTENT CELL ── */
 td.td-content{
-  min-width:100px;max-width:140px;
+  min-width:96px;max-width:136px;
   padding:0;cursor:pointer;position:relative;overflow:hidden;transition:filter .1s;
 }
 td.td-content:hover{filter:brightness(0.93);}
@@ -83,7 +83,7 @@ td.td-content.st-checkout .ci{padding:3px 5px;font-size:9.5px;}
 
 /* ── MEMO CELL (좁게) ── */
 td.td-memo{
-  min-width:44px;max-width:60px;
+  min-width:42px;max-width:58px;
   cursor:pointer;padding:3px 4px;font-size:9.5px;color:#666;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   vertical-align:middle;transition:filter .1s;
@@ -286,6 +286,7 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
   <div style="margin-left:auto;display:flex;gap:6px;">
     <button class="tbtn" onclick="window.print()">🖨 인쇄</button>
     <button class="tbtn" style="background:#1d6f42;color:#fff;border-color:#1d6f42;" onclick="downloadExcel()">📊 엑셀저장</button>
+    <button class="tbtn" id="cancelListBtn" style="background:#7b3fa0;color:#fff;border-color:#7b3fa0;" onclick="openCancelModal()">📋 취소 목록</button>
     <button class="tbtn tbtn-del" onclick="clearAll()">🗑 초기화</button>
   </div>
 </div>
@@ -397,11 +398,54 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
       <div class="color-picker-row" id="colorPicker"></div>
 
     </div>
+    <div id="amend-history-box" style="display:none;margin:0 18px 8px;padding:8px 10px;background:#fff8e8;border:1px solid #f0c040;border-radius:7px;font-size:10.5px;color:#7a5800;"></div>
     <div class="modal-ft">
       <button class="tbtn tbtn-del" onclick="clearCell()">예약 삭제</button>
+      <button class="tbtn" id="amendBtn" style="display:none;background:#1a5fa0;color:#fff;border-color:#1a5fa0;" onclick="openAmendCalendar()">✏ 날짜변경</button>
+      <button class="tbtn" id="amendRoomBtn" style="display:none;background:#0d7a6e;color:#fff;border-color:#0d7a6e;" onclick="openAmendRoom()">🔄 호수변경</button>
       <button class="tbtn" onclick="closeModal()">취소</button>
       <button class="tbtn tbtn-save" onclick="saveModal()">저장 ✓</button>
     </div>
+  </div>
+</div>
+
+<!-- AMEND 호수변경 오버레이 -->
+<div id="amend-room-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;width:92%;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+    <div style="background:linear-gradient(135deg,#0d7a6e,#085548);color:#fff;padding:13px 18px;border-radius:12px 12px 0 0;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:14px;font-weight:700;">🔄 호수 변경</span>
+      <button onclick="closeAmendRoom()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:50%;width:26px;height:26px;font-size:14px;cursor:pointer;">✕</button>
+    </div>
+    <div style="padding:14px 16px 18px;">
+      <div id="amend-room-from" style="font-size:11px;color:#888;margin-bottom:12px;text-align:center;"></div>
+      <div id="amend-room-inner"></div>
+    </div>
+  </div>
+</div>
+
+<!-- AMEND 달력 오버레이 -->
+<div id="amend-cal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;width:92%;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+    <div style="background:linear-gradient(135deg,#1a5fa0,#0d3d6b);color:#fff;padding:13px 18px;border-radius:12px 12px 0 0;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:14px;font-weight:700;">✏ AMEND — 날짜 변경</span>
+      <button onclick="closeAmendCalendar()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:50%;width:26px;height:26px;font-size:14px;cursor:pointer;">✕</button>
+    </div>
+    <div id="amend-cal-inner" style="padding:14px 16px 18px;"></div>
+  </div>
+</div>
+
+<!-- 취소 목록 모달 -->
+<div id="cancel-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:8000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;width:92%;max-width:680px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.25);">
+    <div style="background:linear-gradient(135deg,#7b3fa0,#5a2d75);color:#fff;padding:14px 18px;border-radius:12px 12px 0 0;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:15px;font-weight:700;">📋 취소 예약 목록</span>
+      <button onclick="closeCancelModal()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:50%;width:26px;height:26px;font-size:14px;cursor:pointer;line-height:1;">✕</button>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid #eee;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <span style="font-size:11px;color:#888;">전체 취소 내역이 표시됩니다. 복원하면 원래 날짜/호실에 다시 등록됩니다.</span>
+      <button onclick="clearAllCancelled()" style="margin-left:auto;font-size:11px;padding:4px 10px;border:1px solid #e0b0b0;background:#fff5f5;color:#c0392b;border-radius:6px;cursor:pointer;">전체 삭제</button>
+    </div>
+    <div id="cancel-list-body" style="overflow-y:auto;flex:1;padding:8px 14px;"></div>
   </div>
 </div>
 
@@ -657,6 +701,17 @@ async function loadMonth(y,m){
   if(error&&error.code!=='PGRST116') console.error('불러오기 오류:',error);
   if(data&&data.data) Object.assign(allData,data.data);
 }
+/* ── 취소 데이터 ── */
+let cancelledData=[];
+async function loadCancelled(){
+  const{data,error}=await sb.from('villa_data').select('data').eq('data_key','villa_cancelled').single();
+  if(!error&&data&&data.data) cancelledData=data.data;
+  else cancelledData=[];
+}
+async function saveCancelled(){
+  await sb.from('villa_data').upsert({data_key:'villa_cancelled',data:cancelledData,updated_at:new Date().toISOString()});
+}
+
 async function clearAll(){
   if(!confirm('이 달의 모든 데이터를 초기화할까요?')) return;
   const prefix=`${curY}-${String(curM+1).padStart(2,'0')}`;
@@ -670,6 +725,7 @@ async function init(){
   const prev=new Date(curY,curM-1,1);
   await loadMonth(prev.getFullYear(),prev.getMonth());
   await loadMonth(curY,curM);
+  await loadCancelled();updateCancelBadge();
   renderTable();buildColorPicker();
 }
 async function goPrev(){curM--;if(curM<0){curM=11;curY--;}sync();await loadMonth(curY,curM);buildHead();buildBody();}
@@ -714,10 +770,14 @@ function buildHead(){
   r1+='</tr><tr class="tr-sub">';
   ROOMS.forEach((_,i)=>{
     const sep=i>0?' style="border-left:2px solid #c8843a"':'';
-    r1+=`<th${sep} style="min-width:120px">내&nbsp;&nbsp;&nbsp;용</th><th style="max-width:60px">비고</th><th style="max-width:32px">입금</th>`;
+    r1+=`<th${sep} style="min-width:116px">내&nbsp;&nbsp;&nbsp;용</th><th style="max-width:58px">비고</th><th style="max-width:32px">입금</th>`;
   });
   r1+='</tr>';
   thead.innerHTML=r1;
+  requestAnimationFrame(()=>{
+    const r=document.querySelector('thead tr.tr-rooms');
+    if(r) document.documentElement.style.setProperty('--tr-rooms-h', r.offsetHeight+'px');
+  });
 }
 
 /* ── BODY ── */
@@ -792,7 +852,7 @@ function buildBody(){
         const line1=!hidePrice?`${esc(data.company||'')}-${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`:` ${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`;
         const line2=(!hidePrice&&data.price)?`฿${Number(data.price).toLocaleString()}/박당`:'';
         inner=`<div class="ci">
-          <div class="cm-company">${line1} <small style="opacity:.65">퇴실</small></div>
+          <div class="cm-company">${line1}</div>
           ${line2?`<div class="cm-price">${line2}</div>`:''}
           <span class="co-badge" style="color:${bd}">C/O</span>
         </div>`;
@@ -859,6 +919,26 @@ function openModal(dateStr,ri){
   updatePaidUI(!!d.paid);
   buildColorPicker();
   calcTotal();onNightsChange();
+
+  // AMEND 버튼 - 기존 예약일 때만 표시
+  const isExisting=!!allData[editKey];
+  document.getElementById('amendBtn').style.display=isExisting?'':'none';
+  document.getElementById('amendRoomBtn').style.display=isExisting?'':'none';
+
+  // AMEND 이력 표시
+  const histBox=document.getElementById('amend-history-box');
+  const hist=d.amendHistory;
+  if(hist&&hist.length){
+    histBox.style.display='';
+    histBox.innerHTML='<b>📋 AMEND 이력</b><br>'+hist.map(h=>{
+      const dt=new Date(h.movedAt);
+      const dtStr=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      return `· ${h.from} → ${h.to} <span style="color:#aaa;font-size:9.5px;">(${dtStr})</span>`;
+    }).join('<br>');
+  } else {
+    histBox.style.display='none';
+  }
+
   document.getElementById('overlay').classList.add('open');
   setTimeout(()=>document.getElementById('m-company').focus(),80);
 }
@@ -926,9 +1006,234 @@ async function saveModal(){
   showToast('✅ 예약이 저장되었습니다');
 }
 async function clearCell(){
-  if(!confirm('이 예약을 삭제할까요?')) return;
+  if(!confirm('이 예약을 취소하고 취소 목록에 보관할까요?')) return;
+  const d=allData[editKey];
+  const ri=parseInt(editKey.split('_')[1]);
+  const room=ROOMS[ri];
+  cancelledData.push({...d, originalKey:editKey, roomLabel:room?(room.no+'('+room.bed+')'):'', cancelledAt:new Date().toISOString()});
+  await saveCancelled();
+  updateCancelBadge();
   delete allData[editKey];
-  await doSave();buildBody();closeModal();showToast('삭제되었습니다');
+  await doSave();buildBody();closeModal();
+  showToast('📋 취소 목록에 보관되었습니다');
+}
+
+function updateCancelBadge(){
+  const btn=document.getElementById('cancelListBtn');
+  if(!btn) return;
+  const n=cancelledData.length;
+  btn.textContent=n>0?`📋 취소 목록 (${n})`:'📋 취소 목록';
+}
+
+/* ── AMEND ── */
+let amendCalY,amendCalM;
+function openAmendCalendar(){
+  const fromDate=editKey.split('_')[0];
+  const[fy,fm]=fromDate.split('-').map(Number);
+  amendCalY=fy; amendCalM=fm-1;
+  renderAmendCal();
+  document.getElementById('amend-cal-overlay').style.display='flex';
+}
+function closeAmendCalendar(){
+  document.getElementById('amend-cal-overlay').style.display='none';
+}
+function renderAmendCal(){
+  const ri=parseInt(editKey.split('_')[1]);
+  const fromDate=editKey.split('_')[0];
+  const y=amendCalY,m=amendCalM;
+  const first=new Date(y,m,1).getDay();
+  const days=new Date(y,m+1,0).getDate();
+  const monthStr=`${y}년 ${m+1}월`;
+  const DAY_LABELS=['일','월','화','수','목','금','토'];
+  let grid='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:8px;">';
+  DAY_LABELS.forEach((d,i)=>{
+    const c=i===0?'#cc1a1a':i===6?'#1a50cc':'#555';
+    grid+=`<div style="text-align:center;font-size:10px;font-weight:700;color:${c};padding:3px 0;">${d}</div>`;
+  });
+  for(let i=0;i<first;i++) grid+=`<div></div>`;
+  for(let d=1;d<=days;d++){
+    const dateStr=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const key=`${dateStr}_${ri}`;
+    const isFrom=dateStr===fromDate;
+    const isOccupied=!isFrom&&!!allData[key];
+    const dow=new Date(y,m,d).getDay();
+    const isToday=dateStr===new Date().toISOString().slice(0,10);
+    let bg=isFrom?'#1a5fa0':isOccupied?'#f5c6c6':'#f9f9f9';
+    let color=isFrom?'#fff':isOccupied?'#999':'#222';
+    if(!isFrom&&!isOccupied&&dow===0) color='#cc1a1a';
+    if(!isFrom&&!isOccupied&&dow===6) color='#1a50cc';
+    const cursor=isOccupied||isFrom?'default':'pointer';
+    const click=isOccupied||isFrom?'':` onclick="confirmAmend('${dateStr}')"`;
+    const todayRing=isToday?'box-shadow:0 0 0 2px #e8a020;':'';
+    grid+=`<div style="text-align:center;padding:5px 2px;border-radius:5px;background:${bg};color:${color};font-size:12px;cursor:${cursor};${todayRing}"${click}>${d}${isOccupied?'<br><span style="font-size:7px;color:#c00;">예약</span>':''}</div>`;
+  }
+  grid+='</div>';
+  document.getElementById('amend-cal-inner').innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+      <button onclick="amendCalPrev()" style="border:1px solid #ddd;background:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:13px;">◀</button>
+      <span style="font-size:14px;font-weight:700;">${monthStr}</span>
+      <button onclick="amendCalNext()" style="border:1px solid #ddd;background:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:13px;">▶</button>
+    </div>
+    <div style="font-size:10.5px;color:#888;text-align:center;margin-bottom:4px;">이동할 날짜를 선택하세요 · 현재: <b style="color:#1a5fa0;">${fromDate}</b></div>
+    ${grid}`;
+}
+function amendCalPrev(){amendCalM--;if(amendCalM<0){amendCalM=11;amendCalY--;}renderAmendCal();}
+function amendCalNext(){amendCalM++;if(amendCalM>11){amendCalM=0;amendCalY++;}renderAmendCal();}
+
+async function confirmAmend(newDate){
+  const fromDate=editKey.split('_')[0];
+  const ri=parseInt(editKey.split('_')[1]);
+  if(!confirm(`${fromDate} → ${newDate} 로 날짜를 변경할까요?`)) return;
+  const d={...allData[editKey]};
+  const hist=d.amendHistory||[];
+  hist.push({from:fromDate, to:newDate, movedAt:new Date().toISOString()});
+  d.amendHistory=hist;
+  const newKey=`${newDate}_${ri}`;
+  allData[newKey]=d;
+  delete allData[editKey];
+  editKey=newKey;
+  await doSave();
+  buildBody();
+  closeAmendCalendar();
+  closeModal();
+  showToast(`✅ ${fromDate} → ${newDate} AMEND 완료`);
+}
+
+/* ── AMEND 호수변경 ── */
+function openAmendRoom(){
+  const fromDate=editKey.split('_')[0];
+  const ri=parseInt(editKey.split('_')[1]);
+  const body=document.getElementById('amend-room-inner');
+  body.innerHTML=ROOMS.map((r,i)=>{
+    if(i===ri) return '';
+    const occupied=!!allData[`${fromDate}_${i}`];
+    const bg=occupied?'#f5f5f5':'#f0fff8';
+    const border=occupied?'#ddd':'#0d7a6e';
+    const color=occupied?'#aaa':'#0d7a6e';
+    const cursor=occupied?'default':'pointer';
+    const click=occupied?'':` onclick="confirmAmendRoom(${i})"`;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1.5px solid ${border};border-radius:8px;background:${bg};cursor:${cursor};margin-bottom:8px;"${click}>
+      <div>
+        <div style="font-size:14px;font-weight:700;color:${color};">${r.no}</div>
+        <div style="font-size:11px;color:#888;">${r.bed}</div>
+      </div>
+      ${occupied
+        ? '<span style="font-size:11px;color:#c00;background:#ffe0e0;padding:3px 8px;border-radius:10px;">예약 있음</span>'
+        : '<span style="font-size:11px;color:#0d7a6e;background:#d4f5ee;padding:3px 8px;border-radius:10px;">선택 가능 ▶</span>'}
+    </div>`;
+  }).join('');
+  const fromRoom=ROOMS[ri];
+  document.getElementById('amend-room-from').textContent=`현재: ${fromDate} · ${fromRoom.no} (${fromRoom.bed})`;
+  document.getElementById('amend-room-overlay').style.display='flex';
+}
+function closeAmendRoom(){
+  document.getElementById('amend-room-overlay').style.display='none';
+}
+async function confirmAmendRoom(newRi){
+  const fromDate=editKey.split('_')[0];
+  const ri=parseInt(editKey.split('_')[1]);
+  const fromRoom=ROOMS[ri].no, toRoom=ROOMS[newRi].no;
+  if(!confirm(`${fromRoom} → ${toRoom} 으로 호수를 변경할까요?\n날짜: ${fromDate}`)) return;
+  const d={...allData[editKey]};
+  const hist=d.amendHistory||[];
+  hist.push({from:`${fromDate} ${fromRoom}`, to:`${fromDate} ${toRoom}`, movedAt:new Date().toISOString()});
+  d.amendHistory=hist;
+  const newKey=`${fromDate}_${newRi}`;
+  allData[newKey]=d;
+  delete allData[editKey];
+  editKey=newKey;
+  await doSave();
+  buildBody();
+  closeAmendRoom();
+  closeModal();
+  showToast(`✅ ${fromRoom} → ${toRoom} 호수변경 완료`);
+}
+
+function openCancelModal(){
+  renderCancelList();
+  document.getElementById('cancel-modal').style.display='flex';
+}
+function closeCancelModal(){
+  document.getElementById('cancel-modal').style.display='none';
+}
+
+function renderCancelList(){
+  const body=document.getElementById('cancel-list-body');
+  if(!cancelledData.length){
+    body.innerHTML='<div style="text-align:center;color:#aaa;padding:30px;font-size:13px;">취소된 예약이 없습니다.</div>';
+    return;
+  }
+  const sorted=[...cancelledData].sort((a,b)=>b.cancelledAt.localeCompare(a.cancelledAt));
+  body.innerHTML=sorted.map((d,i)=>{
+    const orig=cancelledData.indexOf(d);
+    const date=d.originalKey?d.originalKey.split('_')[0]:'';
+    const co=new Date(d.cancelledAt);
+    const coStr=`${co.getFullYear()}-${String(co.getMonth()+1).padStart(2,'0')}-${String(co.getDate()).padStart(2,'0')} ${String(co.getHours()).padStart(2,'0')}:${String(co.getMinutes()).padStart(2,'0')}`;
+    return `<div style="border:1px solid #e8e0f0;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#fdf8ff;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span style="background:#7b3fa0;color:#fff;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;">${d.roomLabel||''}</span>
+        <span style="font-size:13px;font-weight:700;color:#333;">${esc(d.company||'')}</span>
+        <span style="font-size:11px;color:#888;margin-left:auto;">취소: ${coStr}</span>
+      </div>
+      <div style="font-size:11px;color:#555;display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+        <span>📅 ${date}</span>
+        <span>🌙 ${d.nights||'-'}박</span>
+        <span>🛏 ${d.bedtype||'-'}베드</span>
+        ${d.price?`<span>฿${Number(d.price).toLocaleString()}/박</span>`:''}
+        ${d.memo1?`<span>📝 ${esc(d.memo1)}</span>`:''}
+      </div>
+      <div style="display:flex;gap:6px;justify-content:flex-end;">
+        <button onclick="restoreCancel(${orig})" style="font-size:11px;padding:4px 12px;border:1px solid #1a6b3a;background:#f0fff4;color:#1a6b3a;border-radius:6px;cursor:pointer;">↩ 복원</button>
+        <button onclick="deleteCancelItem(${orig})" style="font-size:11px;padding:4px 12px;border:1px solid #e0b0b0;background:#fff5f5;color:#c0392b;border-radius:6px;cursor:pointer;">🗑 삭제</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function restoreCancel(idx){
+  const d=cancelledData[idx];
+  if(!d) return;
+  if(allData[d.originalKey]){showToast('⚠ 해당 날짜/호실에 이미 예약이 있습니다');return;}
+  const{originalKey,roomLabel,cancelledAt,...booking}=d;
+  allData[originalKey]=booking;
+  cancelledData.splice(idx,1);
+  await doSave();await saveCancelled();
+  buildBody();updateCancelBadge();renderCancelList();
+  showToast('✅ 예약이 복원되었습니다');
+}
+
+async function deleteCancelItem(idx){
+  if(!confirm('취소 내역을 완전히 삭제할까요?')) return;
+  cancelledData.splice(idx,1);
+  await saveCancelled();updateCancelBadge();renderCancelList();
+  showToast('삭제되었습니다');
+}
+
+async function clearAllCancelled(){
+  if(!confirm('취소 목록을 모두 삭제할까요?')) return;
+  cancelledData=[];
+  await saveCancelled();updateCancelBadge();renderCancelList();
+  showToast('취소 목록이 비워졌습니다');
+}
+
+function showDeleteChoice(){
+  return new Promise(resolve=>{
+    const el=document.createElement('div');
+    el.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9500;display:flex;align-items:center;justify-content:center;';
+    el.innerHTML=`<div style="background:#fff;border-radius:12px;padding:24px 20px;width:280px;box-shadow:0 8px 32px rgba(0,0,0,0.25);text-align:center;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:8px;">예약 처리 방법 선택</div>
+      <div style="font-size:12px;color:#666;margin-bottom:18px;">이 예약을 어떻게 처리할까요?</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <button id="dc-cancel" style="padding:10px;border:1px solid #7b3fa0;background:#f8f0ff;color:#7b3fa0;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">📋 취소 목록에 보관</button>
+        <button id="dc-delete" style="padding:10px;border:1px solid #e0b0b0;background:#fff5f5;color:#c0392b;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">🗑 완전 삭제</button>
+        <button id="dc-close" style="padding:8px;border:1px solid #ddd;background:#fff;color:#666;border-radius:8px;font-size:12px;cursor:pointer;">취소</button>
+      </div>
+    </div>`;
+    document.body.appendChild(el);
+    el.querySelector('#dc-cancel').onclick=()=>{document.body.removeChild(el);resolve('cancel');};
+    el.querySelector('#dc-delete').onclick=()=>{document.body.removeChild(el);resolve('delete');};
+    el.querySelector('#dc-close').onclick=()=>{document.body.removeChild(el);resolve(null);};
+  });
 }
 function tglPaid(key){
   if(currentUser&&currentUser.role==='operator') return;
@@ -994,22 +1299,184 @@ function downloadExcel(){
     rows.push(row);
   }
 
-  // CSV → Excel 변환 (BOM 포함으로 한글 깨짐 방지)
-  const csvContent='\uFEFF'+rows.map(r=>
-    r.map(cell=>{
-      const s=String(cell??'');
-      return s.includes(',')||s.includes('"')||s.includes('\n')?`"${s.replace(/"/g,'""')}"`:s;
-    }).join(',')
-  ).join('\n');
+  // (구버전 CSV 로직 → _buildXlsx 로 대체됨)
+  showToast('⏳ 엑셀 생성 중...');
+  setTimeout(()=>_buildXlsx(),50);
+}
 
-  const blob=new Blob([csvContent],{type:'text/csv;charset=utf-8;'});
+async function _buildXlsx(){
+  if(!window.ExcelJS){
+    await new Promise((res,rej)=>{
+      const s=document.createElement('script');
+      s.src='https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js';
+      s.onload=res; s.onerror=rej;
+      document.head.appendChild(s);
+    });
+  }
+  const CPS=6;
+  const RCOLS=[
+    {hd:'1E7A45',lt:'D4EDDA',md:'A8D5B5'},
+    {hd:'1A5CBF',lt:'D0E8FF',md:'A0C4F0'},
+    {hd:'C8620A',lt:'FDE8D0',md:'F5C09A'},
+    {hd:'7A20C8',lt:'E8D4FD',md:'C8A0F0'},
+    {hd:'1A8A8A',lt:'D0F5F5',md:'90D8D8'},
+    {hd:'8A5000',lt:'FDF0D0',md:'E0C870'},
+  ];
+  const totalCols=2+ROOMS.length*CPS;
+  const DOWS_KR=['일','월','화','수','목','금','토'];
+  const daysInMonth=new Date(curY,curM+1,0).getDate();
+
+  const wb=new ExcelJS.Workbook();
+  wb.creator='어메이징풀빌라'; wb.created=new Date();
+  const ws=wb.addWorksheet(`${curY}년 ${curM+1}월`,{
+    views:[{state:'frozen',xSplit:2,ySplit:4}],
+    pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0}
+  });
+
+  ws.getColumn(1).width=13; ws.getColumn(2).width=5;
+  ROOMS.forEach((_,i)=>{
+    ws.getColumn(3+i*CPS).width=16; // 회사명
+    ws.getColumn(4+i*CPS).width=8;  // 베드타입
+    ws.getColumn(5+i*CPS).width=5;  // 박수
+    ws.getColumn(6+i*CPS).width=11; // 박당금액
+    ws.getColumn(7+i*CPS).width=11; // 총금액
+    ws.getColumn(8+i*CPS).width=9;  // 입금여부
+  });
+
+  const fl=c=>({type:'pattern',pattern:'solid',fgColor:{argb:'FF'+c}});
+  const fn=o=>({name:'맑은 고딕',...o});
+  const al=(h,v='middle')=>({horizontal:h,vertical:v});
+  const bd=(s,c)=>({style:s,color:{argb:'FF'+c}});
+
+  // Row1 타이틀
+  ws.addRow([`어메이징풀빌라   ${curY}년 ${curM+1}월  수배서`]);
+  ws.mergeCells(1,1,1,totalCols);
+  const t1=ws.getCell(1,1);
+  t1.fill=fl('FFF3E6'); t1.font=fn({size:15,bold:true,color:{argb:'FFC8390A'}});
+  t1.alignment=al('center'); t1.border={bottom:bd('medium','C8843A')};
+  ws.getRow(1).height=30;
+
+  // Row2 계좌
+  ws.addRow(['입금계좌: 카시컨 644-200-4046 CHO SOOYOUNG']);
+  ws.mergeCells(2,1,2,totalCols);
+  const a2=ws.getCell(2,1);
+  a2.fill=fl('FFF8F0'); a2.font=fn({size:9,color:{argb:'FF888888'}});
+  a2.alignment=al('center'); a2.border={bottom:bd('thin','E0C8A0')};
+  ws.getRow(2).height=15;
+
+  // Row3 호실 헤더
+  ws.addRow(['DATE','요일',...ROOMS.flatMap(r=>[r.no+'('+r.bed+')',...Array(CPS-1).fill('')])]);
+  ws.mergeCells(3,1,4,1); ws.mergeCells(3,2,4,2);
+  ROOMS.forEach((_,i)=>{
+    const sc=3+i*CPS;
+    ws.mergeCells(3,sc,3,sc+CPS-1);
+    const rc=RCOLS[i]||RCOLS[0];
+    const c=ws.getCell(3,sc);
+    c.value=`${ROOMS[i].no}  (${ROOMS[i].bed})`;
+    c.fill=fl(rc.hd); c.font=fn({size:11,bold:true,color:{argb:'FFFFFFFF'}});
+    c.alignment=al('center');
+    c.border={left:bd('medium','FFFFFF'),right:bd('medium','FFFFFF'),bottom:bd('thin',rc.hd)};
+  });
+  ['DATE','요일'].forEach((v,i)=>{
+    const c=ws.getCell(3,i+1);
+    c.value=v; c.fill=fl('FFF3E6');
+    c.font=fn({size:10,bold:true,color:{argb:'FFC8390A'}});
+    c.alignment=al('center');
+    c.border={right:bd('medium','C8843A'),bottom:bd('thin','C8843A')};
+  });
+  ws.getRow(3).height=22;
+
+  // Row4 서브헤더
+  ws.addRow(['','',...ROOMS.flatMap(()=>['회사명','베드타입','박수','박당금액','총금액','입금여부'])]);
+  ROOMS.forEach((_,i)=>{
+    const rc=RCOLS[i]||RCOLS[0];
+    for(let c=0;c<CPS;c++){
+      const cell=ws.getCell(4,3+i*CPS+c);
+      cell.fill=fl(rc.md); cell.font=fn({size:9,bold:true,color:{argb:'FF333333'}});
+      cell.alignment=al('center');
+      cell.border={
+        top:bd('thin','CCCCCC'),bottom:bd('medium',rc.hd),
+        left:bd('thin','CCCCCC'),right:c===CPS-1?bd('medium','AAAAAA'):bd('thin','CCCCCC')
+      };
+    }
+  });
+  ws.getRow(4).height=17;
+
+  // 데이터 행
+  const roomTotals=ROOMS.map(()=>0);
+  for(let d=1;d<=daysInMonth;d++){
+    const date=new Date(curY,curM,d);
+    const dateStr=fmt(date);
+    const dow=date.getDay();
+    const isSun=dow===0, isSat=dow===6;
+    const dateBg=isSun?'FFF3F3':isSat?'F3F6FF':'FFFFFF';
+    const dateColor=isSun?'CC1A1A':isSat?'1A50CC':'222222';
+    const blocks=ROOMS.map((_,ri)=>getBlock(dateStr,ri));
+    const vals=[dateStr,DOWS_KR[dow]];
+    blocks.forEach(({state,data})=>{
+      if(state==='checkin'||state==='single'){
+        const n=parseInt(data.nights)||1,pr=parseInt(data.price)||0;
+        vals.push(data.company||'',data.bedtype||'',n,pr,pr*n,data.paid?'O':'');
+      } else if(state==='staying') vals.push('|','','','','','');
+      else if(state==='checkout') vals.push('| C/O','','','','','');
+      else vals.push('','','','','','');
+    });
+    const row=ws.addRow(vals); row.height=19;
+    [1,2].forEach(c=>{
+      const cell=row.getCell(c);
+      cell.fill=fl(dateBg);
+      cell.font=fn({size:c===1?10:9,bold:c===1,color:{argb:'FF'+dateColor}});
+      cell.alignment=al('center');
+      cell.border={right:bd('medium','C8843A'),top:bd('thin','EEEEEE'),bottom:bd('thin','EEEEEE')};
+    });
+    blocks.forEach(({state,data},i)=>{
+      const rc=RCOLS[i]||RCOLS[0];
+      const bg=(state==='checkin'||state==='single')?rc.lt:(state==='staying'||state==='checkout')?'F5F5F5':'FFFFFF';
+      if((state==='checkin'||state==='single')&&data){
+        const n=parseInt(data.nights)||1,pr=parseInt(data.price)||0;
+        roomTotals[i]+=pr*n;
+      }
+      for(let c=0;c<CPS;c++){
+        const cell=row.getCell(3+i*CPS+c);
+        cell.fill=fl(bg);
+        cell.font=fn({size:9,color:{argb:'FF'+(state==='staying'||state==='checkout'?'AAAAAA':'333333')}});
+        cell.alignment=al(c===0?'left':'center');
+        if(c===3||c===4) cell.numFmt='#,##0';
+        if(c===5&&cell.value==='O') cell.font=fn({size:11,bold:true,color:{argb:'FF1E7A45'}});
+        cell.border={
+          top:bd('thin','E8E8E8'),bottom:bd('thin','E8E8E8'),
+          left:c===0?bd('thin','C8843A'):bd('thin','E0E0E0'),
+          right:c===CPS-1?bd('thin','C8843A'):bd('thin','E0E0E0')
+        };
+      }
+    });
+  }
+
+  // 합계 행
+  const totVals=['합  계','',...ROOMS.flatMap((_,i)=>['','','',roomTotals[i],roomTotals[i],''])];
+  const totRow=ws.addRow(totVals); totRow.height=22;
+  ws.mergeCells(ws.rowCount,1,ws.rowCount,2);
+  const tc=totRow.getCell(1);
+  tc.fill=fl('F0F0F0'); tc.font=fn({size:10,bold:true}); tc.alignment=al('center');
+  tc.border={top:bd('medium','AAAAAA'),bottom:bd('medium','AAAAAA')};
+  ROOMS.forEach((_,i)=>{
+    const rc=RCOLS[i]||RCOLS[0];
+    for(let c=0;c<CPS;c++){
+      const cell=totRow.getCell(3+i*CPS+c);
+      cell.fill=fl(rc.md); cell.font=fn({size:10,bold:true,color:{argb:'FF'+rc.hd}});
+      cell.alignment=al('center');
+      if(c===3||c===4) cell.numFmt='#,##0';
+      cell.border={top:bd('medium','AAAAAA'),bottom:bd('medium','AAAAAA')};
+    }
+  });
+
+  const buf=await wb.xlsx.writeBuffer();
+  const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
-  a.href=url;
-  a.download=`어메이징풀빌라_${monthStr}_수배서.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-  showToast('📊 엑셀 파일이 다운로드됩니다');
+  a.href=url; a.download=`어메이징풀빌라_${curY}년${curM+1}월_수배서.xlsx`;
+  a.click(); URL.revokeObjectURL(url);
+  showToast('📊 엑셀 파일 다운로드 완료!');
 }
 
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
