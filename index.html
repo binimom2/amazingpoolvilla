@@ -351,6 +351,10 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
         </div>
       </div>
 
+      <div class="msec">🏘 동시 예약 (한 그룹이 여러 채를 함께 예약할 때 선택)</div>
+      <div id="multiRoomPicker" style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:4px;"></div>
+      <div id="multiRoomSummary" style="font-size:10.5px;color:#888;margin-bottom:10px;"></div>
+
       <div class="msec">요금 (฿ 바트)</div>
       <!-- 줄 4: 박당 금액 + 총액 한 줄 -->
       <div class="fg" style="margin-bottom:4px;">
@@ -926,6 +930,30 @@ function buildColorPicker(){
   });
 }
 
+/* ── 동시 예약(그룹) 호실 선택 ── */
+function buildMultiRoomPicker(ri,isExisting){
+  const wrap=document.getElementById('multiRoomPicker');
+  wrap.innerHTML='';
+  document.getElementById('multiRoomSummary').textContent='';
+  if(isExisting){
+    // 기존 예약 수정 시에는 그룹 추가 대상에서 제외 (신규 예약 입력 시에만 지원)
+    wrap.style.display='none';
+    return;
+  }
+  wrap.style.display='flex';
+  ROOMS.forEach((r,i)=>{
+    if(i===ri) return;
+    const lbl=document.createElement('label');
+    lbl.style.cssText='display:inline-flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;';
+    lbl.innerHTML=`<input type="checkbox" class="multi-room-chk" value="${i}" style="width:14px;height:14px;" onchange="updateMultiRoomSummary()"/> ${r.no}(${r.bed})`;
+    wrap.appendChild(lbl);
+  });
+}
+function updateMultiRoomSummary(){
+  const n=document.querySelectorAll('.multi-room-chk:checked').length;
+  document.getElementById('multiRoomSummary').textContent=n?`✅ 총 ${n+1}개 호실에 동일한 내용으로 저장됩니다`:'';
+}
+
 /* ── MODAL ── */
 function openModal(dateStr,ri){
   // OPERATOR는 모달 진입 불가
@@ -935,6 +963,7 @@ function openModal(dateStr,ri){
   }
   editKey=`${dateStr}_${ri}`;
   const d=allData[editKey]||{};
+  const isExisting=!!allData[editKey];
   selColor=d.color??0;
 
   document.getElementById('mTitle').textContent=`${dateStr} · 체크인`;
@@ -955,10 +984,10 @@ function openModal(dateStr,ri){
   document.getElementById('m-paiddate').value=d.paiddate||'';
   updatePaidUI(!!d.paid);
   buildColorPicker();
+  buildMultiRoomPicker(ri,isExisting);
   calcTotal();onNightsChange();
 
   // AMEND 버튼 - 기존 예약일 때만 표시
-  const isExisting=!!allData[editKey];
   document.getElementById('amendBtn').style.display=isExisting?'':'none';
   document.getElementById('amendRoomBtn').style.display=isExisting?'':'none';
 
@@ -1018,14 +1047,19 @@ async function saveModal(){
   if(!nights){showToast('⚠ 박수를 입력해 주세요');document.getElementById('m-nights').focus();return;}
   const ri=parseInt(editKey.split('_')[1]);
   const ciStr=editKey.split('_')[0];
-  for(let i=0;i<nights;i++){
-    const chk=new Date(parseDate(ciStr));chk.setDate(chk.getDate()+i);
-    const chkKey=`${fmt(chk)}_${ri}`;
-    if(chkKey!==editKey&&allData[chkKey]){showToast(`⚠ ${fmt(chk)}에 다른 예약이 있습니다`);return;}
-    const {state,ck}=getBlock(fmt(chk),ri);
-    if(state!=='empty'&&ck!==editKey){showToast(`⚠ ${fmt(chk)}에 다른 예약 블록이 있습니다`);return;}
+  const extraRooms=Array.from(document.querySelectorAll('.multi-room-chk:checked')).map(c=>parseInt(c.value));
+  const targetRooms=[ri,...extraRooms];
+
+  for(const tri of targetRooms){
+    for(let i=0;i<nights;i++){
+      const chk=new Date(parseDate(ciStr));chk.setDate(chk.getDate()+i);
+      const chkKey=`${fmt(chk)}_${tri}`;
+      if(chkKey!==editKey&&allData[chkKey]){showToast(`⚠ ${ROOMS[tri].no} ${fmt(chk)}에 다른 예약이 있습니다`);return;}
+      const {state,ck}=getBlock(fmt(chk),tri);
+      if(state!=='empty'&&ck!==editKey){showToast(`⚠ ${ROOMS[tri].no} ${fmt(chk)}에 다른 예약 블록이 있습니다`);return;}
+    }
   }
-  allData[editKey]={
+  const payload={
     company:document.getElementById('m-company').value.trim(),
     guest:document.getElementById('m-guest').value.trim(),
     phone:document.getElementById('m-phone').value.trim(),
@@ -1039,8 +1073,9 @@ async function saveModal(){
     paiddate:document.getElementById('m-paiddate').value,
     color:selColor,
   };
+  targetRooms.forEach(tri=>{ allData[`${ciStr}_${tri}`]={...payload}; });
   await doSave();buildBody();closeModal();
-  showToast('✅ 예약이 저장되었습니다');
+  showToast(extraRooms.length?`✅ ${targetRooms.length}개 호실(${targetRooms.map(t=>ROOMS[t].no).join(', ')})에 예약이 저장되었습니다`:'✅ 예약이 저장되었습니다');
 }
 async function clearCell(){
   if(!confirm('이 예약을 취소하고 취소 목록에 보관할까요?')) return;
