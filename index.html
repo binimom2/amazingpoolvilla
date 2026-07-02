@@ -459,34 +459,69 @@ const ADMIN_PW_DEFAULT='123456';
 // role: 'admin' | 'manager' | 'operator'
 
 function getAdminPw(){return localStorage.getItem('villa_admin_pw')||ADMIN_PW_DEFAULT;}
-function setAdminPw(pw){localStorage.setItem('villa_admin_pw',pw);}
+async function setAdminPw(pw){
+  localStorage.setItem('villa_admin_pw',pw);
+  const{error}=await sb.from('villa_data').upsert({data_key:'villa_admin_pw',data:pw,updated_at:new Date().toISOString()});
+  if(error) showToast('❌ 관리자 비번 동기화 실패: '+error.message);
+}
 function getAccounts(){try{return JSON.parse(localStorage.getItem('villa_accounts')||'[]');}catch{return[];}}
-function saveAccounts(arr){localStorage.setItem('villa_accounts',JSON.stringify(arr));}
+async function saveAccounts(arr){
+  localStorage.setItem('villa_accounts',JSON.stringify(arr));
+  const{error}=await sb.from('villa_data').upsert({data_key:'villa_accounts',data:arr,updated_at:new Date().toISOString()});
+  if(error) showToast('❌ 계정 동기화 실패: '+error.message);
+}
+// 다른 기기에서 추가된 계정을 이 기기의 로컬 캐시로 가져옴
+async function syncAccountsFromSupabase(){
+  try{
+    const{data:accRow}=await sb.from('villa_data').select('data').eq('data_key','villa_accounts').single();
+    if(accRow&&Array.isArray(accRow.data)) localStorage.setItem('villa_accounts',JSON.stringify(accRow.data));
+    const{data:pwRow}=await sb.from('villa_data').select('data').eq('data_key','villa_admin_pw').single();
+    if(pwRow&&typeof pwRow.data==='string') localStorage.setItem('villa_admin_pw',pwRow.data);
+  }catch(e){}
+}
 
 let currentUser=null;
 
-function doLogin(){
+async function doLogin(){
   const id=document.getElementById('login-id').value.trim();
   const pw=document.getElementById('login-pw').value.trim();
   const err=document.getElementById('login-err');
+  const btn=document.querySelector('.login-btn');
+  err.textContent='';
+  if(btn){btn.textContent='로그인 중...';btn.disabled=true;}
 
-  if(id===ADMIN_ID&&pw===getAdminPw()){
-    currentUser={id,role:'admin'};
-    document.getElementById('login-screen').style.display='none';
-    applyRoleUI();
-    return;
+  try{
+    if(id===ADMIN_ID&&pw===getAdminPw()){
+      currentUser={id,role:'admin'};
+      document.getElementById('login-screen').style.display='none';
+      applyRoleUI();
+      return;
+    }
+    let accounts=getAccounts();
+    let found=accounts.find(a=>a.id===id&&a.pw===pw);
+    if(!found){
+      // 이 기기의 로컬 캐시에 없으면 Supabase에서 최신 계정 목록을 직접 조회
+      try{
+        const{data:row}=await sb.from('villa_data').select('data').eq('data_key','villa_accounts').single();
+        if(row&&Array.isArray(row.data)){
+          accounts=row.data;
+          localStorage.setItem('villa_accounts',JSON.stringify(accounts));
+          found=accounts.find(a=>a.id===id&&a.pw===pw);
+        }
+      }catch(e){}
+    }
+    if(found){
+      currentUser={id:found.id,role:found.role};
+      document.getElementById('login-screen').style.display='none';
+      applyRoleUI();
+      return;
+    }
+    err.textContent='아이디 또는 비밀번호가 올바르지 않습니다.';
+    document.getElementById('login-pw').value='';
+    document.getElementById('login-pw').focus();
+  } finally {
+    if(btn){btn.textContent='로그인';btn.disabled=false;}
   }
-  const accounts=getAccounts();
-  const found=accounts.find(a=>a.id===id&&a.pw===pw);
-  if(found){
-    currentUser={id:found.id,role:found.role};
-    document.getElementById('login-screen').style.display='none';
-    applyRoleUI();
-    return;
-  }
-  err.textContent='아이디 또는 비밀번호가 올바르지 않습니다.';
-  document.getElementById('login-pw').value='';
-  document.getElementById('login-pw').focus();
 }
 
 function roleBadgeHTML(role){
@@ -611,16 +646,16 @@ function togglePwChange(i){
   if(!isOpen) row.classList.add('open');
 }
 
-function changePw(i){
+async function changePw(i){
   const newPw=document.getElementById(`pw-new-${i}`).value.trim();
   const errEl=document.getElementById(`pw-err-${i}`);
   if(newPw.length!==6||isNaN(newPw)){errEl.textContent='숫자 6자리만 가능합니다.';return;}
   if(i==='admin'){
-    setAdminPw(newPw);
+    await setAdminPw(newPw);
   } else {
     const accounts=getAccounts();
     accounts[i].pw=newPw;
-    saveAccounts(accounts);
+    await saveAccounts(accounts);
   }
   document.getElementById(`pwrow-${i}`).classList.remove('open');
   document.getElementById(`pw-new-${i}`).value='';
@@ -628,7 +663,7 @@ function changePw(i){
   showToast('🔑 비밀번호가 변경되었습니다');
 }
 
-function addAccount(){
+async function addAccount(){
   const id=document.getElementById('acc-id').value.trim();
   const pw=document.getElementById('acc-pw').value.trim();
   const role=document.getElementById('acc-role').value;
@@ -639,7 +674,7 @@ function addAccount(){
   const accounts=getAccounts();
   if(accounts.find(a=>a.id===id)){err.textContent='이미 존재하는 아이디입니다.';return;}
   accounts.push({id,pw,role});
-  saveAccounts(accounts);
+  await saveAccounts(accounts);
   document.getElementById('acc-id').value='';
   document.getElementById('acc-pw').value='';
   err.textContent='';
@@ -647,11 +682,11 @@ function addAccount(){
   showToast('✅ 계정이 추가되었습니다');
 }
 
-function deleteAccount(i){
+async function deleteAccount(i){
   if(!confirm('이 계정을 삭제할까요?')) return;
   const accounts=getAccounts();
   accounts.splice(i,1);
-  saveAccounts(accounts);
+  await saveAccounts(accounts);
   renderAccountList();
   showToast('🗑 계정이 삭제되었습니다');
 }
@@ -721,6 +756,7 @@ async function clearAll(){
 }
 
 async function init(){
+  syncAccountsFromSupabase();
   const t=new Date();curY=t.getFullYear();curM=t.getMonth();
   document.getElementById('monthPicker').value=`${curY}-${String(curM+1).padStart(2,'0')}`;
   const prev=new Date(curY,curM-1,1);
