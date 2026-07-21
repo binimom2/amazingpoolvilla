@@ -307,7 +307,7 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
 </div>
 
 <!-- MODAL -->
-<div class="overlay" id="overlay" onclick="bgClose(event)">
+<div class="overlay" id="overlay" onmousedown="bgDown(event)" onclick="bgClose(event)">
   <div class="modal">
     <div class="modal-hd" id="modalHd">
       <h2 id="mTitle">예약 입력</h2>
@@ -971,10 +971,35 @@ function openModal(dateStr,ri){
   }
 
   document.getElementById('overlay').classList.add('open');
+  _modalOpenSnap=_modalSnapshot();   // 입력 전 상태 기록(닫을 때 '고친 게 있나' 판단용)
   setTimeout(()=>document.getElementById('m-company').focus(),80);
 }
-function closeModal(){document.getElementById('overlay').classList.remove('open');}
-function bgClose(e){if(e.target===document.getElementById('overlay'))closeModal();}
+function closeModal(){document.getElementById('overlay').classList.remove('open');_bgDownOnOverlay=false;}
+
+/* ── 입력 중 창이 실수로 닫혀 내용이 날아가는 것 방지 ──
+   원인: 모달 안에서 마우스를 누른 채 드래그하다(글자 선택·칸 크기조절) 바깥에서 손을 떼면
+   click 이벤트가 공통 부모인 overlay에서 발생 → 배경을 누른 걸로 오인해 닫혔다.
+   해결: 「누르기」와 「떼기」가 모두 배경일 때만 닫고, 고친 내용이 있으면 한 번 더 확인받는다. */
+let _bgDownOnOverlay=false;
+let _modalOpenSnap='';
+function _modalSnapshot(){
+  return [...document.querySelectorAll('#overlay .modal input,#overlay .modal select,#overlay .modal textarea')]
+    .map(el=>(el.type==='checkbox'||el.type==='radio')?(el.checked?'1':'0'):el.value).join('');
+}
+function modalDirty(){
+  const ov=document.getElementById('overlay');
+  return !!(ov&&ov.classList.contains('open'))&&_modalSnapshot()!==_modalOpenSnap;
+}
+// 사용자가 '닫기'를 의도한 경로(배경 클릭·ESC)에서만 쓴다. 저장 후 닫기는 closeModal()을 직접 호출.
+function requestCloseModal(){
+  if(modalDirty()&&!confirm('입력한 내용이 아직 저장되지 않았습니다.\n창을 닫으면 입력한 내용이 사라집니다.\n\n(Unsaved changes will be lost. Close anyway?)\n\n닫을까요?')) return;
+  closeModal();
+}
+function bgDown(e){ _bgDownOnOverlay=(e.target===document.getElementById('overlay')); }
+function bgClose(e){
+  const wasDown=_bgDownOnOverlay; _bgDownOnOverlay=false;
+  if(wasDown&&e.target===document.getElementById('overlay')) requestCloseModal();
+}
 
 function onNightsChange(){
   const n=parseInt(document.getElementById('m-nights').value)||0;
@@ -1516,7 +1541,8 @@ async function _buildXlsx(){
   showToast('📊 엑셀 파일 다운로드 완료!');
 }
 
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+// ESC도 실수로 눌릴 수 있어 입력 중이면 확인받는다(저장 후 닫기는 closeModal 직접 호출이라 영향 없음)
+document.addEventListener('keydown',e=>{if(e.key==='Escape')requestCloseModal();});
 
 /* ── 모바일 핀치줌 ── */
 (function(){
