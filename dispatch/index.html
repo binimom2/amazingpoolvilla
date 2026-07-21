@@ -289,7 +289,7 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
   <button class="tbtn" onclick="goNext()">다음달 ▶</button>
   <div style="margin-left:auto;display:flex;gap:6px;">
     <button class="tbtn" onclick="window.print()">🖨 인쇄</button>
-    <button class="tbtn" style="background:#1d6f42;color:#fff;border-color:#1d6f42;" onclick="downloadExcel()">📊 엑셀저장</button>
+    <button class="tbtn" id="excelBtn" style="background:#1d6f42;color:#fff;border-color:#1d6f42;" onclick="downloadExcel()">📊 엑셀저장</button>
     <button class="tbtn" id="cancelListBtn" style="background:#7b3fa0;color:#fff;border-color:#7b3fa0;" onclick="openCancelModal()">📋 취소 목록</button>
     <button class="tbtn tbtn-del" onclick="clearAll()">🗑 초기화</button>
   </div>
@@ -575,9 +575,10 @@ function applyRoleUI(){
   logoutBtn.onclick=doLogout;
   toolbar.appendChild(logoutBtn);
 
-  // OPERATOR: 저장/인쇄 버튼 숨김, 셀 클릭 비활성화
+  // OPERATOR: 객실 가능 여부만 보면 되므로 저장·엑셀저장·취소목록을 숨긴다(달력 요금도 숨김 — renderTable 참고)
   if(role==='operator'){
     document.querySelectorAll('.tbtn-save').forEach(b=>b.style.display='none');
+    ['excelBtn','cancelListBtn'].forEach(id=>{ const b=document.getElementById(id); if(b) b.style.display='none'; });
   }
   // ADMIN이 아니면 초기화 버튼 숨김
   if(role!=='admin'){
@@ -868,11 +869,14 @@ function buildBody(){
       let inner='';
       const clickDate=(state==='checkin'||state==='single')?dateStr:checkinStr;
 
-      const hidePrice=(currentUser&&currentUser.id==='amazingop');
+      // OPERATOR는 객실 가능 여부만 보면 되므로 박당 요금을 숨긴다
+      const hidePrice=(currentUser&&(currentUser.role==='operator'||currentUser.id==='amazingop'));
+      // 회사명까지 가리던 건 예전 전용 계정에만 해당 — 오퍼레이터는 회사명은 그대로 본다
+      const hideCompany=(currentUser&&currentUser.id==='amazingop');
 
       if(state==='checkin'||state==='single'){
         const n=parseInt(data.nights)||1;
-        const line1=!hidePrice?`${esc(data.company||'(예약)')}-${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`:` ${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`;
+        const line1=!hideCompany?`${esc(data.company||'(예약)')}-${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`:` ${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`;
         const line2=(!hidePrice&&data.price)?`฿${Number(data.price).toLocaleString()}/박당`:'';
         inner=`<div class="ci">
           <div class="cm-company">${line1}</div>
@@ -882,7 +886,7 @@ function buildBody(){
         </div>`;
       } else if(state==='staying'){
         const n=parseInt(data.nights)||1;
-        const line1=!hidePrice?`${esc(data.company||'')}-${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`:` ${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`;
+        const line1=!hideCompany?`${esc(data.company||'')}-${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`:` ${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`;
         const line2=(!hidePrice&&data.price)?`฿${Number(data.price).toLocaleString()}/박당`:'';
         inner=`<div class="ci" style="opacity:.75;">
           <div class="cm-company">${line1}</div>
@@ -890,7 +894,7 @@ function buildBody(){
         </div>`;
       } else if(state==='checkout'){
         const n=parseInt(data.nights)||1;
-        const line1=!hidePrice?`${esc(data.company||'')}-${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`:` ${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`;
+        const line1=!hideCompany?`${esc(data.company||'')}-${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`:` ${n}박${data.bedtype?'-'+esc(data.bedtype)+'베드':''}`;
         const line2=(!hidePrice&&data.price)?`฿${Number(data.price).toLocaleString()}/박당`:'';
         inner=`<div class="ci">
           <div class="cm-company">${line1}</div>
