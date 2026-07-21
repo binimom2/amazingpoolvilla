@@ -189,6 +189,9 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
 .acc-btn-pw:hover{background:#e8f2ff;}
 .acc-btn-del{border:1px solid #e0b0b0;background:#fff;color:#c0392b;}
 .acc-btn-del:hover{background:#fff5f5;}
+/* 권한 변경 드롭다운 (관리자만 노출) */
+.acc-role-sel{border:1px solid #c9b0e0;background:#fff;color:#5e1599;border-radius:6px;padding:3px 6px;font-size:11px;font-weight:700;font-family:'Noto Sans KR',sans-serif;cursor:pointer;}
+.acc-role-sel:hover{background:#f7f0ff;}
 .acc-close-btn{width:100%;background:#eee;color:#555;border:none;border-radius:7px;padding:9px;font-size:13px;font-weight:600;font-family:'Noto Sans KR',sans-serif;cursor:pointer;margin-top:4px;}
 .acc-close-btn:hover{background:#ddd;}
 /* 비번변경 인라인 */
@@ -469,10 +472,12 @@ async function setAdminPw(pw){
   if(error) showToast('❌ 관리자 비번 동기화 실패: '+error.message);
 }
 function getAccounts(){try{return JSON.parse(localStorage.getItem('villa_accounts')||'[]');}catch{return[];}}
+// 서버 저장 성공 여부를 반환한다(권한 변경처럼 서버 반영이 확인돼야 하는 곳에서 사용)
 async function saveAccounts(arr){
   localStorage.setItem('villa_accounts',JSON.stringify(arr));
   const{error}=await sb.from('villa_data').upsert({data_key:'villa_accounts',data:arr,updated_at:new Date().toISOString()});
-  if(error) showToast('❌ 계정 동기화 실패: '+error.message);
+  if(error){ showToast('❌ 계정 동기화 실패: '+error.message); return false; }
+  return true;
 }
 // 다른 기기에서 추가된 계정을 이 기기의 로컬 캐시로 가져옴
 async function syncAccountsFromSupabase(){
@@ -602,6 +607,7 @@ function closeAccountModal(){
 
 function renderAccountList(){
   const accounts=getAccounts();
+  const isAdmin=!!(currentUser&&currentUser.role==='admin');
   const ul=document.getElementById('acc-list');
   ul.innerHTML='';
 
@@ -631,6 +637,10 @@ function renderAccountList(){
       <span class="acc-id">${a.id}</span>
       ${roleBadgeHTML(a.role)}
       <div class="acc-actions">
+        ${isAdmin?`<select class="acc-role-sel" title="권한 변경" onchange="changeRole(${i},this.value)">
+          <option value="manager" ${a.role==='manager'?'selected':''}>MANAGER</option>
+          <option value="operator" ${a.role==='operator'?'selected':''}>OPERATOR</option>
+        </select>`:''}
         <button class="acc-btn acc-btn-pw" onclick="togglePwChange(${i})">🔑 비번변경</button>
         <button class="acc-btn acc-btn-del" onclick="deleteAccount(${i})">삭제</button>
       </div>
@@ -650,6 +660,31 @@ function togglePwChange(i){
   const isOpen=row.classList.contains('open');
   document.querySelectorAll('.pw-change-row').forEach(r=>r.classList.remove('open'));
   if(!isOpen) row.classList.add('open');
+}
+
+/* 권한(role) 변경 — 관리자만.
+   계정 추가·삭제·비밀번호는 Supabase Auth 소관이라 대시보드에서 하지만,
+   권한은 villa_accounts(앱 데이터)의 role 값일 뿐이라 여기서 바꾼다.
+   ADMIN 승격은 넣지 않는다(관리자는 ADMIN_ID로 고정). */
+const ROLE_LABEL={manager:'MANAGER (수배입력)',operator:'OPERATOR (달력조회만)'};
+async function changeRole(i,newRole){
+  if(!currentUser||currentUser.role!=='admin'){ showToast('⛔ 관리자만 권한을 변경할 수 있습니다'); renderAccountList(); return; }
+  if(newRole!=='manager'&&newRole!=='operator'){ renderAccountList(); return; }
+  const target=getAccounts()[i];
+  if(!target){ renderAccountList(); return; }
+  if(target.role===newRole) return;
+  if(!confirm(`[${target.id}] 계정의 권한을 변경합니다.\n\n${ROLE_LABEL[target.role]||target.role}\n  ↓\n${ROLE_LABEL[newRole]}\n\n적용할까요?`)){ renderAccountList(); return; }
+  // 다른 기기에서 바뀐 목록을 통째로 덮어쓰지 않도록 최신본을 받아 그 위에 반영
+  await syncAccountsFromSupabase();
+  const list=getAccounts();
+  const idx=list.findIndex(a=>a.id===target.id);
+  if(idx<0){ showToast('❌ 그 사이 삭제된 계정입니다'); renderAccountList(); return; }
+  list[idx]=Object.assign({},list[idx],{role:newRole});
+  const ok=await saveAccounts(list);
+  // 서버 반영에 실패하면 이 기기에만 바뀐 상태로 남는다 → 서버 최신본으로 되돌려 오해를 막는다
+  if(!ok){ await syncAccountsFromSupabase(); renderAccountList(); alert('❌ 권한 변경이 서버에 저장되지 않았습니다.\n변경은 적용되지 않았습니다. 잠시 후 다시 시도해 주세요.'); return; }
+  renderAccountList();
+  showToast(`✅ ${target.id} → ${newRole.toUpperCase()} 로 변경했습니다 (본인은 다시 로그인해야 적용됩니다)`);
 }
 
 // 보안 강화(Supabase Auth 전환)로 계정 관리는 대시보드에서 진행
