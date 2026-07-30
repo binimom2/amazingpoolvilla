@@ -489,6 +489,19 @@ async function syncAccountsFromSupabase(){
   }catch(e){}
 }
 
+// 로그인 계정(Supabase Auth) 생성/삭제/비번변경은 서버(service_role) 함수에서만 처리
+async function callAccountApi(action,payload){
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    const token = session && session.access_token;
+    if(!token) return { error:'로그인이 만료되었습니다. 다시 로그인해 주세요.' };
+    const r = await fetch('/api/account',{ method:'POST',
+      headers:{ 'content-type':'application/json', Authorization:'Bearer '+token },
+      body: JSON.stringify(Object.assign({action},payload)) });
+    return await r.json().catch(()=>({error:'서버 응답을 해석할 수 없습니다.'}));
+  }catch(e){ return { error:'서버 연결 실패: '+((e&&e.message)||e) }; }
+}
+
 let currentUser=null;
 
 // 아이디 → Supabase Auth 이메일 매핑 (로그인 화면엔 여전히 아이디만 입력)
@@ -688,13 +701,74 @@ async function changeRole(i,newRole){
   showToast(`✅ ${target.id} → ${newRole.toUpperCase()} 로 변경했습니다 (본인은 다시 로그인해야 적용됩니다)`);
 }
 
-// 보안 강화(Supabase Auth 전환)로 계정 관리는 대시보드에서 진행
-function accountMgmtMoved(){
-  alert('🔒 보안 강화 안내\n\n로그인이 Supabase 정식 인증으로 바뀌면서\n계정 추가·삭제·비밀번호 변경은 이제\nSupabase 대시보드에서 진행합니다.\n\n(관리자에게 문의하세요)');
+// 계정 추가 — 서버(service_role) 함수로 실제 Auth 계정을 만든다
+async function addAccount(){
+  if(!currentUser||currentUser.role!=='admin'){ showToast('⛔ 관리자만 계정을 추가할 수 있습니다'); return; }
+  const id=document.getElementById('acc-id').value.trim();
+  const pw=document.getElementById('acc-pw').value.trim();
+  const err=document.getElementById('acc-err');
+  err.textContent='';
+  if(!id){ err.textContent='아이디를 입력해주세요.'; return; }
+  if(id.toLowerCase()===ADMIN_ID){ err.textContent='사용할 수 없는 아이디입니다.'; return; }
+  if(pw.length<6){ err.textContent='비밀번호는 6자 이상이어야 합니다.'; return; }
+  await syncAccountsFromSupabase();
+  const accounts=getAccounts();
+  if(accounts.find(a=>a.id.toLowerCase()===id.toLowerCase())){ err.textContent='이미 존재하는 아이디입니다.'; return; }
+  const role=document.getElementById('acc-role').value||'operator';
+  const email=idToEmail(id);
+  const btn=document.querySelector('#account-modal .acc-add-btn');
+  if(btn){ btn.disabled=true; btn.textContent='생성 중...'; }
+  const res=await callAccountApi('create',{ email, password:pw, metadata:{ login_name:id, name:id, role } });
+  if(btn){ btn.disabled=false; btn.textContent='➕ 계정 추가'; }
+  if(!res||!res.ok){ err.textContent=(res&&res.error)||'계정 생성에 실패했습니다.'; return; }
+  accounts.push({ id, role, email, authId:res.id });
+  const ok=await saveAccounts(accounts);
+  if(!ok){ err.textContent='로그인 계정은 만들어졌으나 목록 저장에 실패했습니다. 잠시 후 새로고침해 확인하세요.'; }
+  document.getElementById('acc-id').value='';
+  document.getElementById('acc-pw').value='';
+  renderAccountList();
+  showToast('✅ 계정이 추가되었습니다. 이제 로그인할 수 있습니다.');
 }
-async function changePw(i){ accountMgmtMoved(); }
-async function addAccount(){ accountMgmtMoved(); }
-async function deleteAccount(i){ accountMgmtMoved(); }
+// 계정 삭제 — Auth 계정까지 함께 삭제
+async function deleteAccount(i){
+  if(!currentUser||currentUser.role!=='admin'){ showToast('⛔ 관리자만 삭제할 수 있습니다'); return; }
+  await syncAccountsFromSupabase();
+  const accounts=getAccounts();
+  const a=accounts[i]; if(!a) return;
+  if(!confirm(`[${a.id}] 계정을 삭제할까요?`)) return;
+  if(a.authId||a.email){
+    const res=await callAccountApi('delete', a.authId?{id:a.authId}:{email:a.email});
+    if(!res||!res.ok){ if(!confirm('로그인 계정 삭제 실패:\n'+((res&&res.error)||'')+'\n\n목록에서만 제거할까요?')) return; }
+  }
+  const idx=accounts.findIndex(x=>x.id===a.id);
+  if(idx>=0) accounts.splice(idx,1);
+  await saveAccounts(accounts);
+  renderAccountList();
+  showToast('🗑 계정이 삭제되었습니다');
+}
+// 비밀번호 변경 — 관리자(admin) 또는 일반 계정. 실제 Auth 비번을 바꾼다
+async function changePw(i){
+  if(!currentUser||currentUser.role!=='admin'){ showToast('⛔ 관리자만 변경할 수 있습니다'); return; }
+  const isAdminTarget=(i==='admin');
+  const err=document.getElementById(`pw-err-${i}`);
+  const inp=document.getElementById(`pw-new-${i}`);
+  const nw=((inp&&inp.value)||'').trim();
+  if(err) err.textContent='';
+  if(nw.length<6){ if(err) err.textContent='6자 이상 입력'; return; }
+  let payload;
+  if(isAdminTarget){
+    payload={ email: idToEmail(ADMIN_ID), password:nw };
+  }else{
+    const a=getAccounts()[i]; if(!a) return;
+    if(!a.authId&&!a.email){ if(err) err.textContent='예전 계정 - 삭제 후 다시 추가'; return; }
+    payload=Object.assign(a.authId?{id:a.authId}:{email:a.email},{ password:nw });
+  }
+  const res=await callAccountApi('setPassword',payload);
+  if(!res||!res.ok){ if(err) err.textContent=(res&&res.error)||'변경 실패'; return; }
+  if(inp) inp.value='';
+  togglePwChange(i);
+  showToast('🔑 비밀번호가 변경되었습니다');
+}
 const ROOMS=[
   {no:'101호',bed:'5BED'},{no:'102호',bed:'4BED'},{no:'103호',bed:'4BED'},
   {no:'104호',bed:'4BED'},{no:'105호',bed:'4BED'},{no:'106호',bed:'VIP-4BED'},
