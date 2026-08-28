@@ -1176,7 +1176,20 @@ async function saveModal(){
     paiddate:document.getElementById('m-paiddate').value,
     color:selColor,
   };
-  targetRooms.forEach(tri=>{ allData[`${ciStr}_${tri}`]={...payload}; });
+  /* 여러 호실을 한꺼번에 잡을 때는 같은 표(gid)를 붙여 둔다 —
+     나중에 날짜변경(AMEND)에서 「연결된 방」을 정확히 찾아 함께 옮기려고. */
+  const gid = extraRooms.length
+    ? ((allData[editKey]||{}).gid || 'g'+Date.now().toString(36)+Math.random().toString(36).slice(2,6))
+    : (allData[editKey]||{}).gid;
+  targetRooms.forEach(tri=>{
+    /* 고쳐 저장할 때 AMEND 이력과 그룹 표는 그대로 남긴다
+       (예전엔 통째로 덮어써서 이력이 지워졌다) */
+    const old=allData[`${ciStr}_${tri}`]||{};
+    const row={...payload};
+    if(old.amendHistory) row.amendHistory=old.amendHistory;
+    if(gid) row.gid=gid;
+    allData[`${ciStr}_${tri}`]=row;
+  });
   await doSave();buildBody();closeModal();
   showToast(extraRooms.length?`✅ ${targetRooms.length}개 호실(${targetRooms.map(t=>ROOMS[t].no).join(', ')})에 예약이 저장되었습니다`:'✅ 예약이 저장되었습니다');
 }
@@ -1202,15 +1215,73 @@ function updateCancelBadge(){
 
 /* ── AMEND ── */
 let amendCalY,amendCalM;
-function openAmendCalendar(){
+/* ══════ 연결된 방(그룹) ══════
+   여러 호실을 한 팀이 통째로 쓰는 일이 많다. 호실마다 베드수·요금이 달라서
+   자료는 방마다 따로 들어가 있지만, 날짜가 바뀌면 여섯 동이 다 같이 움직여야 한다.
+   같은 팀인지 보는 기준:
+     1) gid — 「여러 호실 동시 예약」으로 함께 저장할 때 붙는 표(가장 정확).
+     2) 표가 없는 옛 예약은 체크인 날짜·박수·업체·손님이름이 모두 같으면 한 팀으로 본다.
+   기계가 잘못 묶을 수도 있으니 옮기기 전에 방 목록을 보여 주고 체크를 풀 수 있게 했다. */
+function groupMates(dateStr,ri){
+  const me=allData[`${dateStr}_${ri}`];
+  if(!me) return [];
+  const t=v=>String(v==null?'':v).trim();
+  const out=[];
+  ROOMS.forEach((r,i)=>{
+    if(i===ri) return;
+    const o=allData[`${dateStr}_${i}`];
+    if(!o) return;
+    if(me.gid||o.gid){ if(me.gid&&o.gid&&me.gid===o.gid) out.push(i); return; }
+    if(!t(me.company)&&!t(me.guest)) return;      // 이름이 하나도 없으면 묶을 근거가 없다
+    if(t(me.nights)===t(o.nights)&&t(me.company)===t(o.company)&&t(me.guest)===t(o.guest)) out.push(i);
+  });
+  return out;
+}
+/* 옮겨 갈 자리가 비어 있는지 — 체크인 하루가 아니라 묵는 날 전체를 본다.
+   ignoreKeys = 지금 옮기는 중인 예약들(제 자리는 비었다고 쳐야 한다).
+   막힌 날짜를 돌려주고, 다 비었으면 null. */
+function rangeConflict(startStr,ri,nights,ignoreKeys){
+  for(let i=0;i<nights;i++){
+    const d=parseDate(startStr); d.setDate(d.getDate()+i);
+    const ds=fmt(d);
+    const b=getBlock(ds,ri);
+    if(b.state!=='empty'&&ignoreKeys.indexOf(b.ck)<0) return ds;
+  }
+  return null;
+}
+/* 다른 달로 옮길 때 그 달을 먼저 불러온다.
+   ⚠ 반드시 필요하다 — 저장은 「지금 화면이 들고 있는 자료」로 그 달을 통째로 덮어쓴다.
+   안 불러온 달로 옮기면 그 달에 원래 있던 예약이 통째로 지워진다.
+   앞 달까지 같이 부르는 이유는, 앞 달에 체크인해서 이 달까지 묵는 팀을 보려고. */
+async function ensureMonth(y,m){
+  const pm=new Date(y,m-1,1);
+  await loadMonth(pm.getFullYear(),pm.getMonth());
+  await loadMonth(y,m);
+}
+
+let amendRooms=[];   // 함께 옮길 호실. 지금 열어 둔 방은 항상 들어 있다.
+async function openAmendCalendar(){
   const fromDate=editKey.split('_')[0];
+  const ri=parseInt(editKey.split('_')[1]);
   const[fy,fm]=fromDate.split('-').map(Number);
   amendCalY=fy; amendCalM=fm-1;
-  renderAmendCal();
+  amendRooms=[ri,...groupMates(fromDate,ri)].sort((a,b)=>a-b);
   document.getElementById('amend-cal-overlay').style.display='flex';
+  document.getElementById('amend-cal-inner').innerHTML=
+    '<div style="padding:30px 0;text-align:center;color:#888;font-size:12px;">불러오는 중…</div>';
+  await ensureMonth(amendCalY,amendCalM);
+  renderAmendCal();
 }
 function closeAmendCalendar(){
   document.getElementById('amend-cal-overlay').style.display='none';
+}
+function toggleAmendRoom(i){
+  const ri=parseInt(editKey.split('_')[1]);
+  if(i===ri) return;                                   // 열어 둔 방은 뺄 수 없다
+  const at=amendRooms.indexOf(i);
+  if(at<0) amendRooms.push(i); else amendRooms.splice(at,1);
+  amendRooms.sort((a,b)=>a-b);
+  renderAmendCal();
 }
 function renderAmendCal(){
   const ri=parseInt(editKey.split('_')[1]);
@@ -1225,12 +1296,15 @@ function renderAmendCal(){
     const c=i===0?'#cc1a1a':i===6?'#1a50cc':'#555';
     grid+=`<div style="text-align:center;font-size:10px;font-weight:700;color:${c};padding:3px 0;">${d}</div>`;
   });
+  /* 막힌 날 판정 — 함께 옮길 방 「전부」가 묵는 날 내내 비어야 고를 수 있다.
+     한 방만 보고 골랐다가 옆방이 막혀 있으면 그룹이 쪼개진다. */
+  const ignore=amendRooms.map(r=>`${fromDate}_${r}`);
+  const nightsOf=r=>parseInt((allData[`${fromDate}_${r}`]||{}).nights)||1;
   for(let i=0;i<first;i++) grid+=`<div></div>`;
   for(let d=1;d<=days;d++){
     const dateStr=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const key=`${dateStr}_${ri}`;
     const isFrom=dateStr===fromDate;
-    const isOccupied=!isFrom&&!!allData[key];
+    const isOccupied=!isFrom&&amendRooms.some(r=>rangeConflict(dateStr,r,nightsOf(r),ignore));
     const dow=new Date(y,m,d).getDay();
     const isToday=dateStr===new Date().toISOString().slice(0,10);
     let bg=isFrom?'#1a5fa0':isOccupied?'#f5c6c6':'#f9f9f9';
@@ -1243,7 +1317,30 @@ function renderAmendCal(){
     grid+=`<div style="text-align:center;padding:5px 2px;border-radius:5px;background:${bg};color:${color};font-size:12px;cursor:${cursor};${todayRing}"${click}>${d}${isOccupied?'<br><span style="font-size:7px;color:#c00;">예약</span>':''}</div>`;
   }
   grid+='</div>';
+  /* 연결된 방 목록 — 체크를 풀면 그 방은 제자리에 남는다(기계가 잘못 묶었을 때를 위해) */
+  const mates=groupMates(fromDate,ri);
+  let grpBox='';
+  if(mates.length){
+    const chips=[ri,...mates].sort((a,b)=>a-b).map(i=>{
+      const on=amendRooms.indexOf(i)>=0, self=i===ri;
+      const bg=on?'#e3f0fb':'#f6f6f6', bd=on?'#1a5fa0':'#ddd', tx=on?'#0d3d6b':'#aaa';
+      return `<label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;
+        border:1.5px solid ${bd};background:${bg};color:${tx};border-radius:14px;padding:3px 9px;
+        cursor:${self?'default':'pointer'};">
+        <input type="checkbox" ${on?'checked':''} ${self?'disabled':''}
+          onchange="toggleAmendRoom(${i})" style="width:13px;height:13px;margin:0;"/>
+        ${ROOMS[i].no}${self?' (이 방)':''}</label>`;
+    }).join('');
+    grpBox=`<div style="border:1.5px solid #1a5fa0;background:#f2f8fd;border-radius:8px;padding:8px 10px;margin-bottom:8px;">
+      <div style="font-size:11.5px;font-weight:700;color:#0d3d6b;margin-bottom:6px;">
+        🔗 연결된 방 ${mates.length+1}개 — <b>${amendRooms.length}개</b>를 함께 옮깁니다</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;">${chips}</div>
+      <div style="font-size:9.5px;color:#888;margin-top:6px;">체크를 풀면 그 방만 제자리에 남습니다 ·
+        달력에서 회색은 함께 옮길 방 중 한 곳이라도 막혀 있는 날입니다</div>
+    </div>`;
+  }
   document.getElementById('amend-cal-inner').innerHTML=`
+    ${grpBox}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
       <button onclick="amendCalPrev()" style="border:1px solid #ddd;background:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:13px;">◀</button>
       <span style="font-size:14px;font-weight:700;">${monthStr}</span>
@@ -1252,26 +1349,40 @@ function renderAmendCal(){
     <div style="font-size:10.5px;color:#888;text-align:center;margin-bottom:4px;">이동할 날짜를 선택하세요 · 현재: <b style="color:#1a5fa0;">${fromDate}</b></div>
     ${grid}`;
 }
-function amendCalPrev(){amendCalM--;if(amendCalM<0){amendCalM=11;amendCalY--;}renderAmendCal();}
-function amendCalNext(){amendCalM++;if(amendCalM>11){amendCalM=0;amendCalY++;}renderAmendCal();}
+/* 달을 넘길 때마다 그 달을 불러온다 — 안 불러온 달로 옮기면 그 달 예약이 지워진다(ensureMonth 설명 참고) */
+async function amendCalPrev(){amendCalM--;if(amendCalM<0){amendCalM=11;amendCalY--;}await ensureMonth(amendCalY,amendCalM);renderAmendCal();}
+async function amendCalNext(){amendCalM++;if(amendCalM>11){amendCalM=0;amendCalY++;}await ensureMonth(amendCalY,amendCalM);renderAmendCal();}
 
 async function confirmAmend(newDate){
   const fromDate=editKey.split('_')[0];
   const ri=parseInt(editKey.split('_')[1]);
-  if(!confirm(`${fromDate} → ${newDate} 로 날짜를 변경할까요?`)) return;
-  const d={...allData[editKey]};
-  const hist=d.amendHistory||[];
-  hist.push({from:fromDate, to:newDate, movedAt:new Date().toISOString()});
-  d.amendHistory=hist;
-  const newKey=`${newDate}_${ri}`;
-  allData[newKey]=d;
-  delete allData[editKey];
-  editKey=newKey;
+  const rooms=amendRooms.length?amendRooms.slice():[ri];
+  const[ny,nm]=newDate.split('-').map(Number);
+  await ensureMonth(ny,nm-1);                      // 옮겨 갈 달을 반드시 손에 들고 옮긴다
+  /* 옮기기 전에 방마다 묵는 날 전체가 비었는지 다시 본다(달력을 그린 뒤 자료가 바뀌었을 수 있다) */
+  const ignore=rooms.map(r=>`${fromDate}_${r}`);
+  for(const r of rooms){
+    const src=allData[`${fromDate}_${r}`];
+    if(!src){showToast(`⚠ ${ROOMS[r].no}의 예약을 찾지 못했습니다`);return;}
+    const hit=rangeConflict(newDate,r,parseInt(src.nights)||1,ignore);
+    if(hit){showToast(`⚠ ${ROOMS[r].no} ${hit}에 다른 예약이 있어 옮길 수 없습니다`);return;}
+  }
+  const label=rooms.length>1?`${rooms.length}개 호실(${rooms.map(r=>ROOMS[r].no).join(', ')})`:ROOMS[ri].no;
+  if(!confirm(`${label}의 날짜를\n${fromDate} → ${newDate} 로 변경할까요?`)) return;
+  const movedAt=new Date().toISOString();
+  rooms.forEach(r=>{
+    const oldKey=`${fromDate}_${r}`;
+    const d={...allData[oldKey]};
+    d.amendHistory=(d.amendHistory||[]).concat([{from:fromDate,to:newDate,movedAt}]);
+    allData[`${newDate}_${r}`]=d;
+    delete allData[oldKey];
+  });
+  editKey=`${newDate}_${ri}`;
   await doSave();
   buildBody();
   closeAmendCalendar();
   closeModal();
-  showToast(`✅ ${fromDate} → ${newDate} AMEND 완료`);
+  showToast(`✅ ${label} · ${fromDate} → ${newDate} AMEND 완료`);
 }
 
 /* ── AMEND 호수변경 ── */
