@@ -796,12 +796,21 @@ let curY,curM,allData={},editKey='',selColor=0;
 
 function sKey(y,m){return `villa_${y}_${String(m+1).padStart(2,'0')}`;}
 
+/* 확실히 다 읽어 온 달만 담는다. 읽기에 실패한 달은 절대 넣지 않는다 —
+   손에 없는 달을 「비었다」고 저장해 버리면 그 달이 통째로 날아간다. */
+const loadedMonths=new Set();
+
 async function doSave(){
   const byM={};
   Object.entries(allData).forEach(([k,v])=>{
     const date=k.split('_')[0];const[y,mo]=date.split('-');
     const mk=`villa_${y}_${mo}`;if(!byM[mk])byM[mk]={};byM[mk][k]=v;
   });
+  /* ⚠ 그 달의 마지막 예약을 옮기거나 지우면 byM 에서 그 달 자체가 사라진다.
+     예전엔 사라진 달을 저장하지 않아 Supabase 에 옛 자료가 그대로 남았고,
+     새로고침하면 옮기기 전 예약이 「잔여분」으로 되살아났다(11/26→1/14 건).
+     읽어 둔 달은 비었더라도 빈 채로 저장해, 지운 것이 진짜로 지워지게 한다. */
+  loadedMonths.forEach(mk=>{ if(!byM[mk]) byM[mk]={}; });
   let hasError=false;
   for(const[k,v] of Object.entries(byM)){
     const{error}=await sb.from('villa_data').upsert({data_key:k,data:v,updated_at:new Date().toISOString()});
@@ -813,7 +822,10 @@ async function doSave(){
 async function loadMonth(y,m){
   const key=sKey(y,m);
   const{data,error}=await sb.from('villa_data').select('data').eq('data_key',key).single();
-  if(error&&error.code!=='PGRST116') console.error('불러오기 오류:',error);
+  /* PGRST116 = 그 달 줄이 아직 없음(정상, 빈 달). 그 밖의 오류는 「못 읽었다」는 뜻이니
+     읽은 달 목록에 넣지 않는다 — 안 넣어야 저장할 때 빈 달로 덮어쓰지 않는다. */
+  if(error&&error.code!=='PGRST116'){ console.error('불러오기 오류:',error); return; }
+  loadedMonths.add(key);
   if(data&&data.data) Object.assign(allData,data.data);
 }
 /* ── 취소 데이터 ── */
