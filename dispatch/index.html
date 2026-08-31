@@ -652,8 +652,18 @@ function renderAccountList(){
     </div>`;
   ul.appendChild(adminLi);
 
-  // 일반 계정
-  accounts.forEach((a,i)=>{
+  /* 일반 계정 — 권한 높은 순(MANAGER → OPERATOR), 같은 권한이면 아이디 순으로 늘어놓는다.
+     ⚠ 화면 순서만 바꾸는 것이라 원래 자리번호(i)는 그대로 들고 다녀야 한다.
+        비번변경·삭제·권한변경이 전부 이 번호로 계정을 찾기 때문에,
+        정렬한 순서로 번호를 다시 매기면 엉뚱한 계정이 지워진다. */
+  const ROLE_RANK={admin:0,manager:1,operator:2};
+  const ordered=accounts
+    .map((a,i)=>({a,i}))
+    .sort((x,y)=>{
+      const d=(ROLE_RANK[x.a.role]??9)-(ROLE_RANK[y.a.role]??9);
+      return d||String(x.a.id||'').localeCompare(String(y.a.id||''),'ko');
+    });
+  ordered.forEach(({a,i})=>{
     const li=document.createElement('li');
     li.style.flexWrap='wrap';
     li.innerHTML=`
