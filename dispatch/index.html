@@ -50,6 +50,15 @@ tbody tr.tr-sun td{background:#fff3f3;}
 tbody tr.tr-sun td.td-date{background:#fff3f3;}
 tbody tr.tr-today td.td-date{background:#fffbe6 !important;}
 
+/* 앞뒤 달에서 끌어온 이월 구간 — 이 달이 아니라는 걸 한눈에 알게 흐리게 깐다.
+   경계(이 달 첫날 바로 위 / 마지막날 바로 아래)에는 굵은 줄을 그어 이 달을 구분한다. */
+tbody tr.tr-adj td{background:#f4f2ef;}
+tbody tr.tr-adj td.td-date{background:#ece8e3;}
+tbody tr.tr-adj .date-line1,tbody tr.tr-adj .date-line2{color:#9a9490;}
+tbody tr.tr-adj td.td-content .ci{opacity:.85;}
+tbody tr.tr-mstart td{border-top:2.5px solid #c8843a;}
+tbody tr.tr-mend td{border-bottom:2.5px solid #c8843a;}
+
 /* 날짜 열 고정 (왼쪽) */
 td.td-date{text-align:center;padding:3px 4px;min-width:68px;border-right:2px solid #c8843a !important;white-space:nowrap;vertical-align:middle;position:sticky;left:0;z-index:2;background:#fff;}
 .date-line1{font-size:11px;font-weight:700;color:#222;display:inline-block;}
@@ -828,6 +837,15 @@ async function loadMonth(y,m){
   loadedMonths.add(key);
   if(data&&data.data) Object.assign(allData,data.data);
 }
+/* 화면에는 앞 달 끝자락과 다음 달 앞자락까지 같이 나오므로(이월팀),
+   그 달만이 아니라 앞뒤 달까지 손에 들고 있어야 빈칸으로 보이지 않는다. */
+async function loadAround(y,m){
+  const pm=new Date(y,m-1,1), nm=new Date(y,m+1,1);
+  await loadMonth(pm.getFullYear(),pm.getMonth());
+  await loadMonth(y,m);
+  await loadMonth(nm.getFullYear(),nm.getMonth());
+}
+
 /* ── 취소 데이터 ── */
 let cancelledData=[];
 async function loadCancelled(){
@@ -850,19 +868,17 @@ async function init(){
   syncAccountsFromSupabase();
   const t=new Date();curY=t.getFullYear();curM=t.getMonth();
   document.getElementById('monthPicker').value=`${curY}-${String(curM+1).padStart(2,'0')}`;
-  const prev=new Date(curY,curM-1,1);
-  await loadMonth(prev.getFullYear(),prev.getMonth());
-  await loadMonth(curY,curM);
+  await loadAround(curY,curM);
   await loadCancelled();updateCancelBadge();
   renderTable();buildColorPicker();
 }
-async function goPrev(){curM--;if(curM<0){curM=11;curY--;}sync();await loadMonth(curY,curM);buildHead();buildBody();}
-async function goNext(){curM++;if(curM>11){curM=0;curY++;}sync();await loadMonth(curY,curM);buildHead();buildBody();}
+async function goPrev(){curM--;if(curM<0){curM=11;curY--;}sync();await loadAround(curY,curM);buildHead();buildBody();}
+async function goNext(){curM++;if(curM>11){curM=0;curY++;}sync();await loadAround(curY,curM);buildHead();buildBody();}
 function sync(){document.getElementById('monthPicker').value=`${curY}-${String(curM+1).padStart(2,'0')}`;}
 async function renderTable(){
   const v=document.getElementById('monthPicker').value;
   if(v){const[y,m]=v.split('-');curY=+y;curM=+m-1;}
-  await loadMonth(curY,curM);buildHead();buildBody();
+  await loadAround(curY,curM);buildHead();buildBody();
 }
 
 /* ── BLOCK LOGIC ── */
@@ -909,18 +925,31 @@ function buildHead(){
 }
 
 /* ── BODY ── */
+/* 이월팀(달을 걸쳐 묵는 팀)이 달력에서 잘려 보이지 않게,
+   앞 달 끝 7일·다음 달 앞 5일을 같이 깔아 준다.
+   예) 11월을 열면 10-25 ~ 12-05 까지 나온다. */
+const PAD_BEFORE=7, PAD_AFTER=5;
+
 function buildBody(){
   const tbody=document.getElementById('tBody');
   const today=new Date();today.setHours(0,0,0,0);
-  const days=new Date(curY,curM+1,0).getDate();
+  const start=new Date(curY,curM,1-PAD_BEFORE);      // 이 달 1일에서 7일 앞
+  const end=new Date(curY,curM+1,PAD_AFTER);          // 다음 달 5일
+  const lastDay=new Date(curY,curM+1,0).getDate();
   let html='';
 
-  for(let d=1;d<=days;d++){
-    const date=new Date(curY,curM,d);
+  for(const cur=new Date(start); cur<=end; cur.setDate(cur.getDate()+1)){
+    const date=new Date(cur);
     const dow=date.getDay();
     const dateStr=fmt(date);
     const isToday=date.getTime()===today.getTime();
-    const rowCls=isToday?'tr-today':dow===6?'tr-sat':dow===0?'tr-sun':'';
+    const isAdj=!(date.getFullYear()===curY&&date.getMonth()===curM);   // 앞뒤 달에서 끌어온 줄
+    const isMStart=!isAdj&&date.getDate()===1;
+    const isMEnd=!isAdj&&date.getDate()===lastDay;
+    let rowCls=isToday?'tr-today':dow===6?'tr-sat':dow===0?'tr-sun':'';
+    if(isAdj) rowCls+=' tr-adj';
+    if(isMStart) rowCls+=' tr-mstart';
+    if(isMEnd) rowCls+=' tr-mend';
     const dateCls=dow===6?'c-sat':dow===0?'c-sun':'';
     const numHtml=isToday
       ?`<span class="today-badge">${dateStr}</span>`
@@ -1266,9 +1295,7 @@ function rangeConflict(startStr,ri,nights,ignoreKeys){
    안 불러온 달로 옮기면 그 달에 원래 있던 예약이 통째로 지워진다.
    앞 달까지 같이 부르는 이유는, 앞 달에 체크인해서 이 달까지 묵는 팀을 보려고. */
 async function ensureMonth(y,m){
-  const pm=new Date(y,m-1,1);
-  await loadMonth(pm.getFullYear(),pm.getMonth());
-  await loadMonth(y,m);
+  await loadAround(y,m);
 }
 
 let amendRooms=[];   // 함께 옮길 호실. 지금 열어 둔 방은 항상 들어 있다.
