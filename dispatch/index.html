@@ -1244,17 +1244,104 @@ async function saveModal(){
   await doSave();buildBody();closeModal();
   showToast(extraRooms.length?`✅ ${targetRooms.length}개 호실(${targetRooms.map(t=>ROOMS[t].no).join(', ')})에 예약이 저장되었습니다`:'✅ 예약이 저장되었습니다');
 }
+/* ══════ 예약 취소 ══════
+   여러 동을 한 코드로 잡은 팀(groupMates)은 「전체 취소」도 되고
+   「한 동만 · 두 동만」 골라서 취소도 돼야 한다(날짜변경과 같은 묶음 기준).
+   연결된 방이 없으면 예전처럼 확인창 하나로 끝난다. */
 async function clearCell(){
-  if(!confirm('이 예약을 취소하고 취소 목록에 보관할까요?')) return;
-  const d=allData[editKey];
+  const fromDate=editKey.split('_')[0];
   const ri=parseInt(editKey.split('_')[1]);
-  const room=ROOMS[ri];
-  cancelledData.push({...d, originalKey:editKey, roomLabel:room?(room.no+'('+room.bed+')'):'', cancelledAt:new Date().toISOString()});
+  const mates=groupMates(fromDate,ri);
+  let rooms=[ri];
+  if(mates.length){
+    rooms=await showCancelChoice(fromDate,ri,mates);
+    if(!rooms||!rooms.length) return;
+  }else{
+    if(!confirm('이 예약을 취소하고 취소 목록에 보관할까요?')) return;
+  }
+  const cancelledAt=new Date().toISOString();
+  /* 묶음으로 취소한 것들은 같은 표(cancelBatch)를 붙여 취소 목록에서 한 팀임을 알 수 있게 한다 */
+  const batch=rooms.length>1?'cb'+Date.now().toString(36):null;
+  const done=[];
+  rooms.forEach(r=>{
+    const key=`${fromDate}_${r}`;
+    const d=allData[key];
+    if(!d) return;
+    const room=ROOMS[r];
+    const item={...d, originalKey:key, roomLabel:room?(room.no+'('+room.bed+')'):'', cancelledAt};
+    if(batch) item.cancelBatch=batch;
+    cancelledData.push(item);
+    delete allData[key];
+    done.push(r);
+  });
+  if(!done.length){showToast('⚠ 취소할 예약을 찾지 못했습니다');return;}
   await saveCancelled();
   updateCancelBadge();
-  delete allData[editKey];
   await doSave();buildBody();closeModal();
-  showToast('📋 취소 목록에 보관되었습니다');
+  showToast(done.length>1
+    ?`📋 ${done.length}개 호실(${done.map(r=>ROOMS[r].no).join(', ')}) 취소 목록에 보관되었습니다`
+    :'📋 취소 목록에 보관되었습니다');
+}
+/* 연결된 방 고르기 창 — 열어 둔 방은 항상 포함, 나머지는 체크로 뺄 수 있다.
+   돌려주는 값: 취소할 호실 번호 배열, 닫으면 null. */
+function showCancelChoice(fromDate,ri,mates){
+  return new Promise(resolve=>{
+    const all=[ri,...mates].sort((a,b)=>a-b);
+    const me=allData[`${fromDate}_${ri}`]||{};
+    const who=[me.company,me.guest].map(v=>String(v||'').trim()).filter(Boolean).join(' · ');
+    const el=document.createElement('div');
+    el.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9500;display:flex;align-items:center;justify-content:center;';
+    const chips=all.map(i=>{
+      const self=i===ri;
+      return `<label style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;
+        border:1.5px solid #7b3fa0;background:#f8f0ff;color:#4d2566;border-radius:14px;padding:4px 10px;
+        cursor:${self?'default':'pointer'};">
+        <input type="checkbox" data-ri="${i}" checked ${self?'disabled':''} style="width:14px;height:14px;margin:0;"/>
+        ${ROOMS[i].no}${self?' (이 방)':''}</label>`;
+    }).join('');
+    el.innerHTML=`<div style="background:#fff;border-radius:12px;width:92%;max-width:340px;box-shadow:0 8px 32px rgba(0,0,0,0.3);overflow:hidden;">
+      <div style="background:linear-gradient(135deg,#7b3fa0,#4d2566);color:#fff;padding:13px 18px;display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:14px;font-weight:700;">📋 예약 취소 — 연결된 방 ${all.length}개</span>
+        <button id="cc-close" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:50%;width:26px;height:26px;font-size:14px;cursor:pointer;">✕</button>
+      </div>
+      <div style="padding:14px 16px 16px;">
+        <div style="font-size:11.5px;color:#555;margin-bottom:8px;">📅 ${fromDate} · ${esc(who)||'(업체/손님 없음)'} · ${me.nights||1}박</div>
+        <div style="border:1.5px solid #7b3fa0;background:#fbf6ff;border-radius:8px;padding:8px 10px;margin-bottom:10px;">
+          <div style="font-size:11.5px;font-weight:700;color:#4d2566;margin-bottom:6px;">취소할 방을 고르세요 — <b id="cc-count">${all.length}</b>개</div>
+          <div style="display:flex;flex-wrap:wrap;gap:5px;">${chips}</div>
+          <div style="font-size:9.5px;color:#888;margin-top:6px;">체크를 풀면 그 방은 그대로 남습니다 · 이 방은 뺄 수 없습니다</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:7px;">
+          <button id="cc-all" style="padding:10px;border:1px solid #7b3fa0;background:#7b3fa0;color:#fff;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">전체 취소 (${all.length}개 호실)</button>
+          <button id="cc-sel" style="padding:10px;border:1px solid #7b3fa0;background:#f8f0ff;color:#7b3fa0;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">선택한 방만 취소 (<span id="cc-selN">${all.length}</span>개)</button>
+          <button id="cc-cancel" style="padding:8px;border:1px solid #ddd;background:#fff;color:#666;border-radius:8px;font-size:12px;cursor:pointer;">닫기</button>
+        </div>
+      </div>
+    </div>`;
+    document.body.appendChild(el);
+    const picked=()=>Array.from(el.querySelectorAll('input[data-ri]')).filter(c=>c.checked).map(c=>parseInt(c.dataset.ri));
+    const refresh=()=>{
+      const n=picked().length;
+      el.querySelector('#cc-count').textContent=n;
+      el.querySelector('#cc-selN').textContent=n;
+      el.querySelector('#cc-sel').style.display=n<all.length?'':'none';   // 다 골라져 있으면 「전체 취소」 하나만 보이면 된다
+    };
+    el.querySelectorAll('input[data-ri]').forEach(c=>c.onchange=refresh);
+    refresh();
+    const close=v=>{document.body.removeChild(el);resolve(v);};
+    el.querySelector('#cc-close').onclick=()=>close(null);
+    el.querySelector('#cc-cancel').onclick=()=>close(null);
+    el.querySelector('#cc-all').onclick=()=>{
+      if(!confirm(`${all.length}개 호실(${all.map(i=>ROOMS[i].no).join(', ')})을 모두 취소하고 취소 목록에 보관할까요?`)) return;
+      close(all.slice());
+    };
+    el.querySelector('#cc-sel').onclick=()=>{
+      const sel=picked();
+      if(!sel.length) return;
+      if(!confirm(`${sel.length}개 호실(${sel.map(i=>ROOMS[i].no).join(', ')})만 취소하고 취소 목록에 보관할까요?\n나머지 ${all.length-sel.length}개는 그대로 남습니다.`)) return;
+      close(sel);
+    };
+  });
 }
 
 function updateCancelBadge(){
@@ -1508,6 +1595,7 @@ function renderCancelList(){
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
         <span style="background:#7b3fa0;color:#fff;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;">${d.roomLabel||''}</span>
         <span style="font-size:13px;font-weight:700;color:#333;">${esc(d.company||'')}</span>
+        ${d.cancelBatch?`<span title="여러 호실을 함께 취소한 묶음" style="font-size:9.5px;color:#7b3fa0;background:#f3e8fb;border:1px solid #d9c2ea;border-radius:10px;padding:1px 7px;">🔗 묶음 ${cancelledData.filter(x=>x.cancelBatch===d.cancelBatch).length}개</span>`:''}
         <span style="font-size:11px;color:#888;margin-left:auto;">취소: ${coStr}</span>
       </div>
       <div style="font-size:11px;color:#555;display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
@@ -1529,7 +1617,7 @@ async function restoreCancel(idx){
   const d=cancelledData[idx];
   if(!d) return;
   if(allData[d.originalKey]){showToast('⚠ 해당 날짜/호실에 이미 예약이 있습니다');return;}
-  const{originalKey,roomLabel,cancelledAt,...booking}=d;
+  const{originalKey,roomLabel,cancelledAt,cancelBatch,...booking}=d;   // 취소 목록용 표는 예약에 되돌려 넣지 않는다
   allData[originalKey]=booking;
   cancelledData.splice(idx,1);
   await doSave();await saveCancelled();
