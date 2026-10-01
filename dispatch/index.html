@@ -468,7 +468,7 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
 
 <!-- 월 정산 모달(관리자) -->
 <div id="settle-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:8000;align-items:center;justify-content:center;">
-  <div style="background:#fff;border-radius:12px;width:94%;max-width:620px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.25);">
+  <div style="background:#fff;border-radius:12px;width:96%;max-width:1000px;max-height:94vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.25);">
     <div style="background:linear-gradient(135deg,#b8860b,#8a6408);color:#fff;padding:12px 16px;border-radius:12px 12px 0 0;display:flex;align-items:center;gap:8px;">
       <button onclick="settleMove(-1)" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:6px;padding:3px 9px;cursor:pointer;">◀</button>
       <span id="settle-title" style="font-size:15px;font-weight:700;"></span>
@@ -1648,7 +1648,7 @@ async function renderSettle(){
     return {date:k.slice(5,10),room:(ROOMS[ri]||{}).no||'',company:d.company||'',n,p,tot:n*p,paid:!!d.paid};
   }).sort((a,b)=>a.date.localeCompare(b.date)||a.room.localeCompare(b.room));
   const sales=rows.reduce((s,r)=>s+r.tot,0), paid=rows.filter(r=>r.paid).reduce((s,r)=>s+r.tot,0);
-  const td='padding:4px 6px;border-bottom:1px solid #f0f0f0;';
+  const td='padding:4px 8px;border-bottom:1px solid #f0f0f0;white-space:nowrap;';
   const list=rows.length?rows.map(r=>`<tr><td style="${td}">${r.date}</td><td style="${td}">${r.room}</td><td style="${td}">${esc(r.company)}</td><td style="${td}text-align:right">${r.n}</td><td style="${td}text-align:right">${r.p.toLocaleString()}</td><td style="${td}text-align:right;font-weight:600">${r.tot.toLocaleString()}</td><td style="${td}text-align:center;color:${r.paid?'#1e7a45':'#c0392b'}">${r.paid?'✓':'미입금'}</td></tr>`).join('')
     :`<tr><td colspan="7" style="padding:14px;text-align:center;color:#aaa">이 달 체크인 예약 없음</td></tr>`;
   const v=k=>ex[k]==null||ex[k]===''?'':ex[k];
@@ -1660,11 +1660,13 @@ async function renderSettle(){
       <div class="st-box"><div>입금 완료</div><b style="color:#1e7a45">${won(paid)}</b></div>
       <div class="st-box"><div>미입금</div><b style="color:#c0392b">${won(sales-paid)}</b></div>
     </div>
-    <div style="max-height:210px;overflow-y:auto;border:1px solid #eee;border-radius:6px;margin-bottom:12px;">
-      <table style="width:100%;border-collapse:collapse;font-size:11.5px;"><thead><tr style="background:#faf6f0;position:sticky;top:0">
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+    <div style="flex:0 1 auto;max-width:100%;max-height:calc(90vh - 190px);min-height:120px;overflow:auto;border:1px solid #eee;border-radius:6px;">
+      <table style="width:auto;min-width:0;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#faf6f0;position:sticky;top:0">
         <th style="${td}text-align:left">체크인</th><th style="${td}text-align:left">동</th><th style="${td}text-align:left">회사명</th><th style="${td}text-align:right">박</th><th style="${td}text-align:right">박당</th><th style="${td}text-align:right">총액</th><th style="${td}">입금</th>
       </tr></thead><tbody>${list}</tbody></table>
     </div>
+    <div style="flex:1 1 300px;min-width:280px;">
     <div style="font-size:12.5px;font-weight:700;color:#5a2d75;margin-bottom:4px;">지출</div>
     ${inp}
     <div style="border-top:2px solid #eee;margin-top:10px;padding-top:8px;font-size:13px;">
@@ -1672,7 +1674,8 @@ async function renderSettle(){
       <div style="display:flex;justify-content:space-between;margin:2px 0"><span>지출 합계</span><span id="st-exp">-</span></div>
       <div style="display:flex;justify-content:space-between;margin:4px 0;font-size:15px;font-weight:700"><span>순이익</span><span id="st-net">-</span></div>
     </div>
-    <div style="text-align:right;margin-top:10px;"><button class="tbtn tbtn-save" style="display:inline-block" onclick="saveSettle()">저장 ✓</button></div>`;
+    <div style="text-align:right;margin-top:10px;"><button class="tbtn tbtn-save" style="display:inline-block" onclick="saveSettle()">저장 ✓</button></div>
+    </div></div>`;
   body.dataset.sales=sales;
   stLoaded=true; stSnap=stFormState(); settleCalc();
 }
