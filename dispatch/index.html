@@ -466,6 +466,23 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
   </div>
 </div>
 
+<!-- 월 정산 모달(관리자) -->
+<div id="settle-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:8000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;width:94%;max-width:620px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.25);">
+    <div style="background:linear-gradient(135deg,#b8860b,#8a6408);color:#fff;padding:12px 16px;border-radius:12px 12px 0 0;display:flex;align-items:center;gap:8px;">
+      <button onclick="settleMove(-1)" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:6px;padding:3px 9px;cursor:pointer;">◀</button>
+      <span id="settle-title" style="font-size:15px;font-weight:700;"></span>
+      <button onclick="settleMove(1)" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:6px;padding:3px 9px;cursor:pointer;">▶</button>
+      <button onclick="closeSettle()" style="margin-left:auto;background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:50%;width:26px;height:26px;font-size:14px;cursor:pointer;line-height:1;">✕</button>
+    </div>
+    <div id="settle-body" style="overflow-y:auto;flex:1;padding:12px 16px 16px;"></div>
+  </div>
+</div>
+<style>
+.st-box{flex:1;min-width:120px;background:#faf6f0;border-radius:8px;padding:7px 10px;font-size:11px;color:#777;}
+.st-box b{display:block;font-size:15px;color:#333;margin-top:2px;}
+</style>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -587,6 +604,12 @@ function applyRoleUI(){
     btn.textContent='👤 계정관리';
     btn.onclick=openAccountModal;
     toolbar.appendChild(btn);
+    const sbtn=document.createElement('button');
+    sbtn.className='tbtn';
+    sbtn.style.cssText='background:#b8860b;color:#fff;border-color:#b8860b;';
+    sbtn.textContent='💰 정산';
+    sbtn.onclick=openSettle;
+    document.getElementById('excelBtn').after(sbtn);
   }
 
   // 로그아웃 버튼 (모든 역할)
@@ -1577,6 +1600,98 @@ function openCancelModal(){
 }
 function closeCancelModal(){
   document.getElementById('cancel-modal').style.display='none';
+}
+
+/* ── 월 정산(관리자) ──
+   매출 = 그 달에 「체크인」한 예약의 총액(8/31~9/3 3박이면 3박 전부 8월).
+   지출은 villa_settle_YYYY_MM 한 줄에 따로 저장 — 예약 자료(villa_YYYY_MM)는 건드리지 않는다. */
+const SETTLE_ITEMS=[
+  ['keyMoney','권리금/월별임대료산정'],['rent','임대료'],['pay1','급여(1~15)'],
+  ['elec','전기세'],['pay2','급여(16~31)'],['misc','경상지출계'],
+];
+let stY,stM,stLoaded=false,stSnap='';
+function stKey(y,m){return `villa_settle_${y}_${String(m+1).padStart(2,'0')}`;}
+const won=n=>(n<0?'-':'')+'฿'+Math.abs(Math.round(n)).toLocaleString();
+async function openSettle(){
+  stY=curY; stM=curM;
+  document.getElementById('settle-modal').style.display='flex';
+  await renderSettle();
+}
+function stFormState(){
+  const o={};SETTLE_ITEMS.forEach(([k])=>{o[k]=document.getElementById('st-'+k).value;});
+  o.miscMemo=document.getElementById('st-miscMemo').value;
+  return JSON.stringify(o);
+}
+function closeSettle(){
+  if(stLoaded&&stFormState()!==stSnap&&!confirm('저장하지 않은 지출 입력이 있습니다. 닫을까요?')) return;
+  document.getElementById('settle-modal').style.display='none';
+}
+async function settleMove(d){
+  if(stLoaded&&stFormState()!==stSnap&&!confirm('저장하지 않은 지출 입력이 있습니다. 이동할까요?')) return;
+  stM+=d; if(stM<0){stM=11;stY--;} if(stM>11){stM=0;stY++;}
+  await renderSettle();
+}
+async function renderSettle(){
+  const body=document.getElementById('settle-body');
+  document.getElementById('settle-title').textContent=`${stY}년 ${stM+1}월 정산`;
+  body.innerHTML='<div style="padding:30px;text-align:center;color:#999;font-size:12px;">불러오는 중…</div>';
+  stLoaded=false;
+  await loadMonth(stY,stM);
+  if(!loadedMonths.has(sKey(stY,stM))){ body.innerHTML='<div style="padding:30px;text-align:center;color:#c0392b;font-size:12px;">❌ 예약 자료를 불러오지 못했습니다. 다시 열어 주세요.</div>'; return; }
+  const{data,error}=await sb.from('villa_data').select('data').eq('data_key',stKey(stY,stM)).single();
+  if(error&&error.code!=='PGRST116'){ body.innerHTML='<div style="padding:30px;text-align:center;color:#c0392b;font-size:12px;">❌ 지출 자료를 불러오지 못했습니다. 다시 열어 주세요.</div>'; return; }
+  const ex=(data&&data.data)||{};
+  // 매출: 이 달에 체크인한 예약
+  const pre=`${stY}-${String(stM+1).padStart(2,'0')}-`;
+  const rows=Object.entries(allData).filter(([k])=>k.startsWith(pre)).map(([k,d])=>{
+    const ri=+k.split('_')[1], n=parseInt(d.nights)||1, p=parseInt(d.price)||0;
+    return {date:k.slice(5,10),room:(ROOMS[ri]||{}).no||'',company:d.company||'',n,p,tot:n*p,paid:!!d.paid};
+  }).sort((a,b)=>a.date.localeCompare(b.date)||a.room.localeCompare(b.room));
+  const sales=rows.reduce((s,r)=>s+r.tot,0), paid=rows.filter(r=>r.paid).reduce((s,r)=>s+r.tot,0);
+  const td='padding:4px 6px;border-bottom:1px solid #f0f0f0;';
+  const list=rows.length?rows.map(r=>`<tr><td style="${td}">${r.date}</td><td style="${td}">${r.room}</td><td style="${td}">${esc(r.company)}</td><td style="${td}text-align:right">${r.n}</td><td style="${td}text-align:right">${r.p.toLocaleString()}</td><td style="${td}text-align:right;font-weight:600">${r.tot.toLocaleString()}</td><td style="${td}text-align:center;color:${r.paid?'#1e7a45':'#c0392b'}">${r.paid?'✓':'미입금'}</td></tr>`).join('')
+    :`<tr><td colspan="7" style="padding:14px;text-align:center;color:#aaa">이 달 체크인 예약 없음</td></tr>`;
+  const v=k=>ex[k]==null||ex[k]===''?'':ex[k];
+  const inp=SETTLE_ITEMS.map(([k,l])=>`<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin:3px 0;"><span style="width:150px;color:#444">${l}</span><input id="st-${k}" type="number" min="0" value="${v(k)}" oninput="settleCalc()" style="flex:1;min-width:0;padding:5px 7px;border:1px solid #ccc;border-radius:5px;font-size:12px;text-align:right;"/></label>`).join('')
+    +`<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin:3px 0;"><span style="width:150px;color:#888">경상지출 내용</span><input id="st-miscMemo" type="text" value="${esc(ex.miscMemo||'')}" placeholder="수리비, 장비교체비 등" style="flex:1;min-width:0;padding:5px 7px;border:1px solid #ccc;border-radius:5px;font-size:12px;"/></label>`;
+  body.innerHTML=`
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      <div class="st-box"><div>매출 (${rows.length}건)</div><b>${won(sales)}</b></div>
+      <div class="st-box"><div>입금 완료</div><b style="color:#1e7a45">${won(paid)}</b></div>
+      <div class="st-box"><div>미입금</div><b style="color:#c0392b">${won(sales-paid)}</b></div>
+    </div>
+    <div style="max-height:210px;overflow-y:auto;border:1px solid #eee;border-radius:6px;margin-bottom:12px;">
+      <table style="width:100%;border-collapse:collapse;font-size:11.5px;"><thead><tr style="background:#faf6f0;position:sticky;top:0">
+        <th style="${td}text-align:left">체크인</th><th style="${td}text-align:left">동</th><th style="${td}text-align:left">회사명</th><th style="${td}text-align:right">박</th><th style="${td}text-align:right">박당</th><th style="${td}text-align:right">총액</th><th style="${td}">입금</th>
+      </tr></thead><tbody>${list}</tbody></table>
+    </div>
+    <div style="font-size:12.5px;font-weight:700;color:#5a2d75;margin-bottom:4px;">지출</div>
+    ${inp}
+    <div style="border-top:2px solid #eee;margin-top:10px;padding-top:8px;font-size:13px;">
+      <div style="display:flex;justify-content:space-between;margin:2px 0"><span>매출</span><span>${won(sales)}</span></div>
+      <div style="display:flex;justify-content:space-between;margin:2px 0"><span>지출 합계</span><span id="st-exp">-</span></div>
+      <div style="display:flex;justify-content:space-between;margin:4px 0;font-size:15px;font-weight:700"><span>순이익</span><span id="st-net">-</span></div>
+    </div>
+    <div style="text-align:right;margin-top:10px;"><button class="tbtn tbtn-save" style="display:inline-block" onclick="saveSettle()">저장 ✓</button></div>`;
+  body.dataset.sales=sales;
+  stLoaded=true; stSnap=stFormState(); settleCalc();
+}
+function settleCalc(){
+  const exp=SETTLE_ITEMS.reduce((s,[k])=>s+(parseFloat(document.getElementById('st-'+k).value)||0),0);
+  const net=(+document.getElementById('settle-body').dataset.sales||0)-exp;
+  document.getElementById('st-exp').textContent=won(exp);
+  const n=document.getElementById('st-net'); n.textContent=won(net); n.style.color=net<0?'#c0392b':'#1e7a45';
+}
+async function saveSettle(){
+  if(!stLoaded) return;
+  if(!currentUser||currentUser.role!=='admin'){ showToast('⛔ 관리자만 저장할 수 있습니다'); return; }
+  const o=JSON.parse(stFormState());
+  SETTLE_ITEMS.forEach(([k])=>{ o[k]=o[k]===''?'':Number(o[k]); });
+  o.updatedBy=currentUser.id;
+  const{error}=await sb.from('villa_data').upsert({data_key:stKey(stY,stM),data:o,updated_at:new Date().toISOString()});
+  if(error){ showToast('❌ 저장 실패: '+error.message); return; }
+  stSnap=stFormState();
+  showToast('💾 정산 저장 완료');
 }
 
 function renderCancelList(){
