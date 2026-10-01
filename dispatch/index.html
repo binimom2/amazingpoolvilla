@@ -470,9 +470,13 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
 <div id="settle-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:8000;align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:12px;width:96%;max-width:1000px;max-height:94vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.25);">
     <div style="background:linear-gradient(135deg,#b8860b,#8a6408);color:#fff;padding:12px 16px;border-radius:12px 12px 0 0;display:flex;align-items:center;gap:8px;">
-      <button onclick="settleMove(-1)" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:6px;padding:3px 9px;cursor:pointer;">◀</button>
+      <button class="st-mnav" onclick="settleMove(-1)" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:6px;padding:3px 9px;cursor:pointer;">◀</button>
       <span id="settle-title" style="font-size:15px;font-weight:700;"></span>
-      <button onclick="settleMove(1)" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:6px;padding:3px 9px;cursor:pointer;">▶</button>
+      <button class="st-mnav" onclick="settleMove(1)" style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:6px;padding:3px 9px;cursor:pointer;">▶</button>
+      <span style="margin-left:10px;display:flex;gap:4px;">
+        <button id="st-tabM" onclick="settleSetMode('month')" style="border:none;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;font-weight:700;">월별</button>
+        <button id="st-tabY" onclick="settleSetMode('year')" style="border:none;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;font-weight:700;">기간별</button>
+      </span>
       <button onclick="closeSettle()" style="margin-left:auto;background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:50%;width:26px;height:26px;font-size:14px;cursor:pointer;line-height:1;">✕</button>
     </div>
     <div id="settle-body" style="overflow-y:auto;flex:1;padding:12px 16px 16px;"></div>
@@ -1613,7 +1617,7 @@ let stY,stM,stLoaded=false,stSnap='';
 function stKey(y,m){return `villa_settle_${y}_${String(m+1).padStart(2,'0')}`;}
 const won=n=>(n<0?'-':'')+'฿'+Math.abs(Math.round(n)).toLocaleString();
 async function openSettle(){
-  stY=curY; stM=curM;
+  stY=curY; stM=curM; stMode='month';
   document.getElementById('settle-modal').style.display='flex';
   await renderSettle();
 }
@@ -1638,6 +1642,67 @@ function closeSettle(){
   if(stLoaded&&stFormState()!==stSnap&&!confirm('저장하지 않은 지출 입력이 있습니다. 닫을까요?')) return;
   document.getElementById('settle-modal').style.display='none';
 }
+/* 정산은 읽기 전용으로 따로 가져온다 — allData/loadedMonths 에 넣으면 doSave 가
+   이 달들까지 내 (오래된) 사본으로 덮어써 다른 직원의 수정이 날아갈 수 있다. */
+const ST_ERR='<div style="padding:30px;text-align:center;color:#c0392b;font-size:12px;">❌ 자료를 불러오지 못했습니다. 다시 열어 주세요.</div>';
+async function stFetch(keys){
+  const{data,error}=await sb.from('villa_data').select('data_key,data').in('data_key',keys);
+  if(error){ console.error('정산 불러오기 오류:',error); return null; }
+  const o={}; (data||[]).forEach(r=>{o[r.data_key]=r.data;}); return o;
+}
+let stMode='month', stFrom='', stTo='';
+function stShowMode(){
+  const y=stMode==='year';
+  document.querySelectorAll('.st-mnav').forEach(b=>b.style.visibility=y?'hidden':'');
+  document.getElementById('st-tabM').style.background=y?'rgba(255,255,255,0.2)':'#fff';
+  document.getElementById('st-tabM').style.color=y?'#fff':'#8a6408';
+  document.getElementById('st-tabY').style.background=y?'#fff':'rgba(255,255,255,0.2)';
+  document.getElementById('st-tabY').style.color=y?'#8a6408':'#fff';
+}
+async function settleSetMode(m){
+  if(m===stMode) return;
+  if(stMode==='month'&&stLoaded&&stFormState()!==stSnap&&!confirm('저장하지 않은 지출 입력이 있습니다. 이동할까요?')) return;
+  stMode=m;
+  if(m==='year'){ if(!stFrom){ stFrom=`${stY}-01`; stTo=`${stY}-${String(stM+1).padStart(2,'0')}`; } await renderSettleYear(); }
+  else await renderSettle();
+}
+async function renderSettleYear(){
+  stLoaded=false; stShowMode();
+  const body=document.getElementById('settle-body');
+  document.getElementById('settle-title').textContent='기간 정산';
+  let [fy,fm]=stFrom.split('-').map(Number), [ty,tm]=stTo.split('-').map(Number);
+  if(fy*12+fm>ty*12+tm){ [fy,fm,ty,tm]=[ty,tm,fy,fm]; }
+  const months=[]; for(let i=fy*12+fm-1;i<=ty*12+tm-1&&months.length<36;i++) months.push([Math.floor(i/12),i%12]);
+  const bar=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;font-size:12px;">
+    <input type="month" id="st-from" value="${stFrom}" style="padding:4px 6px;border:1px solid #ccc;border-radius:5px;font-size:12px;"/> ~
+    <input type="month" id="st-to" value="${stTo}" style="padding:4px 6px;border:1px solid #ccc;border-radius:5px;font-size:12px;"/>
+    <button class="tbtn" onclick="stFrom=document.getElementById('st-from').value||stFrom;stTo=document.getElementById('st-to').value||stTo;renderSettleYear()">조회</button>
+    <span style="color:#999;font-size:11px;">월을 누르면 그 달 정산으로</span></div>`;
+  body.innerHTML=bar+'<div style="padding:30px;text-align:center;color:#999;font-size:12px;">불러오는 중…</div>';
+  const got=await stFetch(months.flatMap(([y,m])=>[sKey(y,m),stKey(y,m)]));
+  if(stMode!=='year') return;
+  if(!got){ body.innerHTML=bar+ST_ERR; return; }
+  const cols=[['sales','매출'],['paid','입금완료'],['unpaid','미입금'],...SETTLE_ITEMS,['exp','지출합계'],['net','순이익']];
+  const tot={}; cols.forEach(([k])=>tot[k]=0);
+  const rowsData=months.map(([y,m])=>{
+    const pre=`${y}-${String(m+1).padStart(2,'0')}-`, r={y,m};
+    let s=0,p=0; Object.entries(got[sKey(y,m)]||{}).forEach(([k,d])=>{ if(!k.startsWith(pre))return; const t=(parseInt(d.nights)||1)*(parseInt(d.price)||0); s+=t; if(d.paid)p+=t; });
+    const ex=got[stKey(y,m)]||{};
+    r.sales=s; r.paid=p; r.unpaid=s-p;
+    r.exp=0; SETTLE_ITEMS.forEach(([k])=>{ r[k]=parseFloat(ex[k])||0; r.exp+=r[k]; });
+    r.net=s-r.exp;
+    cols.forEach(([k])=>tot[k]+=r[k]);
+    return r;
+  });
+  const td='padding:5px 8px;border-bottom:1px solid #f0f0f0;white-space:nowrap;text-align:right;';
+  const cell=(k,v)=>`<td style="${td}${k==='net'?'font-weight:700;color:'+(v<0?'#c0392b':'#1e7a45'):k==='unpaid'&&v?'color:#c0392b':k==='exp'||k==='sales'?'font-weight:600':''}">${v?Math.round(v).toLocaleString():'<span style="color:#ccc">-</span>'}</td>`;
+  body.innerHTML=bar+`<div style="overflow:auto;max-height:calc(94vh - 150px);border:1px solid #eee;border-radius:6px;">
+    <table style="width:auto;min-width:0;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#faf6f0;position:sticky;top:0">
+      <th style="${td}text-align:left">월</th>${cols.map(([,l])=>`<th style="${td}">${l}</th>`).join('')}</tr></thead><tbody>
+      ${rowsData.map(r=>`<tr style="cursor:pointer" onclick="stY=${r.y};stM=${r.m};stMode='month';renderSettle()" onmouseover="this.style.background='#fffaf0'" onmouseout="this.style.background=''"><td style="${td}text-align:left;font-weight:600">${r.y}.${String(r.m+1).padStart(2,'0')}</td>${cols.map(([k])=>cell(k,r[k])).join('')}</tr>`).join('')}
+      <tr style="background:#faf6f0;font-weight:700;position:sticky;bottom:0"><td style="${td}text-align:left">합계</td>${cols.map(([k])=>cell(k,tot[k])).join('')}</tr>
+    </tbody></table></div>`;
+}
 async function settleMove(d){
   if(stLoaded&&stFormState()!==stSnap&&!confirm('저장하지 않은 지출 입력이 있습니다. 이동할까요?')) return;
   stM+=d; if(stM<0){stM=11;stY--;} if(stM>11){stM=0;stY++;}
@@ -1647,15 +1712,13 @@ async function renderSettle(){
   const body=document.getElementById('settle-body');
   document.getElementById('settle-title').textContent=`${stY}년 ${stM+1}월 정산`;
   body.innerHTML='<div style="padding:30px;text-align:center;color:#999;font-size:12px;">불러오는 중…</div>';
-  stLoaded=false;
-  await loadMonth(stY,stM);
-  if(!loadedMonths.has(sKey(stY,stM))){ body.innerHTML='<div style="padding:30px;text-align:center;color:#c0392b;font-size:12px;">❌ 예약 자료를 불러오지 못했습니다. 다시 열어 주세요.</div>'; return; }
-  const{data,error}=await sb.from('villa_data').select('data').eq('data_key',stKey(stY,stM)).single();
-  if(error&&error.code!=='PGRST116'){ body.innerHTML='<div style="padding:30px;text-align:center;color:#c0392b;font-size:12px;">❌ 지출 자료를 불러오지 못했습니다. 다시 열어 주세요.</div>'; return; }
-  const ex=(data&&data.data)||{};
-  // 매출: 이 달에 체크인한 예약
+  stLoaded=false; stShowMode();
+  const got=await stFetch([sKey(stY,stM),stKey(stY,stM)]);
+  if(!got){ body.innerHTML=ST_ERR; return; }
+  const ex=got[stKey(stY,stM)]||{};
+  // 매출: 이 달에 체크인한 예약(villa_YYYY_MM 줄이 곧 그 달 체크인분)
   const pre=`${stY}-${String(stM+1).padStart(2,'0')}-`;
-  const rows=Object.entries(allData).filter(([k])=>k.startsWith(pre)).map(([k,d])=>{
+  const rows=Object.entries(got[sKey(stY,stM)]||{}).filter(([k])=>k.startsWith(pre)).map(([k,d])=>{
     const ri=+k.split('_')[1], n=parseInt(d.nights)||1, p=parseInt(d.price)||0;
     return {date:k.slice(5,10),room:(ROOMS[ri]||{}).no||'',company:d.company||'',n,p,tot:n*p,paid:!!d.paid};
   }).sort((a,b)=>a.date.localeCompare(b.date)||a.room.localeCompare(b.room));
