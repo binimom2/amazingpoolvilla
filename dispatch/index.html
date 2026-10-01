@@ -1619,8 +1619,20 @@ async function openSettle(){
 }
 function stFormState(){
   const o={};SETTLE_ITEMS.forEach(([k])=>{o[k]=document.getElementById('st-'+k).value;});
-  o.miscMemo=document.getElementById('st-miscMemo').value;
+  o.miscItems=[...document.querySelectorAll('#st-miscList .st-mrow')].map(r=>({n:r.querySelector('.st-mn').value.trim(),a:r.querySelector('.st-ma').value}))
+    .filter(i=>i.n||i.a!=='');
   return JSON.stringify(o);
+}
+function stMiscRow(n,a){
+  const st='padding:5px 7px;border:1px solid #ccc;border-radius:5px;font-size:12px;min-width:0;';
+  return `<div class="st-mrow" style="display:flex;gap:4px;margin:3px 0;align-items:center;">
+    <input class="st-mn" type="text" value="${esc(n||'')}" style="${st}flex:1;"/>
+    <input class="st-ma" type="number" min="0" value="${a===''||a==null?'':a}" oninput="settleCalc()" style="${st}width:80px;text-align:right;"/>
+    <button onclick="this.parentNode.remove();settleCalc()" style="border:none;background:none;color:#bbb;cursor:pointer;font-size:13px;padding:0 2px;">✕</button></div>`;
+}
+function stMiscAdd(){
+  document.getElementById('st-miscList').insertAdjacentHTML('beforeend',stMiscRow('',''));
+  const r=document.querySelectorAll('#st-miscList .st-mn'); r[r.length-1].focus();
 }
 function closeSettle(){
   if(stLoaded&&stFormState()!==stSnap&&!confirm('저장하지 않은 지출 입력이 있습니다. 닫을까요?')) return;
@@ -1653,7 +1665,10 @@ async function renderSettle(){
     :`<tr><td colspan="7" style="padding:14px;text-align:center;color:#aaa">이 달 체크인 예약 없음</td></tr>`;
   const v=k=>ex[k]==null||ex[k]===''?'':ex[k];
   const inp=SETTLE_ITEMS.map(([k,l])=>`<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin:3px 0;"><span style="width:150px;color:#444">${l}</span><input id="st-${k}" type="number" min="0" value="${v(k)}" oninput="settleCalc()" style="flex:1;min-width:0;padding:5px 7px;border:1px solid #ccc;border-radius:5px;font-size:12px;text-align:right;"/></label>`).join('')
-    +`<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin:3px 0;"><span style="width:150px;color:#888">경상지출 내용</span><input id="st-miscMemo" type="text" value="${esc(ex.miscMemo||'')}" placeholder="수리비, 장비교체비 등" style="flex:1;min-width:0;padding:5px 7px;border:1px solid #ccc;border-radius:5px;font-size:12px;"/></label>`;
+;
+  // 경상지출 상세: 예전 「내용」 글(쉼표 구분)은 항목 이름으로 옮겨 금액만 채우면 되게
+  let mItems=Array.isArray(ex.miscItems)?ex.miscItems:(ex.miscMemo||'').split(/[,，]/).map(n=>n.trim()).filter(Boolean).map(n=>({n,a:''}));
+  if(!mItems.length) mItems=[{n:'',a:''}];
   body.innerHTML=`
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
       <div class="st-box"><div>매출 (${rows.length}건)</div><b>${won(sales)}</b></div>
@@ -1675,11 +1690,21 @@ async function renderSettle(){
       <div style="display:flex;justify-content:space-between;margin:4px 0;font-size:15px;font-weight:700"><span>순이익</span><span id="st-net">-</span></div>
     </div>
     <div style="text-align:right;margin-top:10px;"><button class="tbtn tbtn-save" style="display:inline-block" onclick="saveSettle()">저장 ✓</button></div>
+    </div>
+    <div style="flex:1 1 230px;min-width:230px;">
+    <div style="font-size:12.5px;font-weight:700;color:#5a2d75;margin-bottom:4px;">경상지출 상세 <span style="font-weight:400;color:#999;font-size:11px">— 합계가 경상지출계로</span></div>
+    <div id="st-miscList">${mItems.map(i=>stMiscRow(i.n,i.a)).join('')}</div>
+    <button class="tbtn" style="margin-top:4px" onclick="stMiscAdd()">＋ 추가</button>
     </div></div>`;
   body.dataset.sales=sales;
-  stLoaded=true; stSnap=stFormState(); settleCalc();
+  settleCalc(); stLoaded=true; stSnap=stFormState();
 }
 function settleCalc(){
+  // 상세에 금액이 하나라도 있으면 경상지출계 = 상세 합계(직접 입력 잠금), 없으면 직접 입력
+  const amts=[...document.querySelectorAll('#st-miscList .st-ma')].map(e=>e.value).filter(v=>v!=='');
+  const mi=document.getElementById('st-misc');
+  if(amts.length){ mi.value=amts.reduce((s,v)=>s+(parseFloat(v)||0),0); mi.readOnly=true; mi.style.background='#f5f5f5'; }
+  else { mi.readOnly=false; mi.style.background=''; }
   const exp=SETTLE_ITEMS.reduce((s,[k])=>s+(parseFloat(document.getElementById('st-'+k).value)||0),0);
   const net=(+document.getElementById('settle-body').dataset.sales||0)-exp;
   document.getElementById('st-exp').textContent=won(exp);
@@ -1690,6 +1715,7 @@ async function saveSettle(){
   if(!currentUser||currentUser.role!=='admin'){ showToast('⛔ 관리자만 저장할 수 있습니다'); return; }
   const o=JSON.parse(stFormState());
   SETTLE_ITEMS.forEach(([k])=>{ o[k]=o[k]===''?'':Number(o[k]); });
+  o.miscItems.forEach(i=>{ i.a=i.a===''?'':Number(i.a); });
   o.updatedBy=currentUser.id;
   const{error}=await sb.from('villa_data').upsert({data_key:stKey(stY,stM),data:o,updated_at:new Date().toISOString()});
   if(error){ showToast('❌ 저장 실패: '+error.message); return; }
