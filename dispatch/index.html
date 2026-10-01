@@ -477,6 +477,7 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
         <button id="st-tabM" onclick="settleSetMode('month')" style="border:none;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;font-weight:700;">월별</button>
         <button id="st-tabY" onclick="settleSetMode('year')" style="border:none;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;font-weight:700;">기간별</button>
       </span>
+      <button onclick="settleExcel()" style="margin-left:auto;background:#1d6f42;border:none;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;font-weight:700;">📊 엑셀</button>
       <button onclick="closeSettle()" style="margin-left:auto;background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:50%;width:26px;height:26px;font-size:14px;cursor:pointer;line-height:1;">✕</button>
     </div>
     <div id="settle-body" style="overflow-y:auto;flex:1;padding:12px 16px 16px;"></div>
@@ -1667,7 +1668,7 @@ async function settleSetMode(m){
   else await renderSettle();
 }
 async function renderSettleYear(){
-  stLoaded=false; stShowMode();
+  stLoaded=false; stYearData=null; stShowMode();
   const body=document.getElementById('settle-body');
   document.getElementById('settle-title').textContent='기간 정산';
   let [fy,fm]=stFrom.split('-').map(Number), [ty,tm]=stTo.split('-').map(Number);
@@ -1702,6 +1703,59 @@ async function renderSettleYear(){
       ${rowsData.map(r=>`<tr style="cursor:pointer" onclick="stY=${r.y};stM=${r.m};stMode='month';renderSettle()" onmouseover="this.style.background='#fffaf0'" onmouseout="this.style.background=''"><td style="${td}text-align:left;font-weight:600">${r.y}.${String(r.m+1).padStart(2,'0')}</td>${cols.map(([k])=>cell(k,r[k])).join('')}</tr>`).join('')}
       <tr style="background:#faf6f0;font-weight:700;position:sticky;bottom:0"><td style="${td}text-align:left">합계</td>${cols.map(([k])=>cell(k,tot[k])).join('')}</tr>
     </tbody></table></div>`;
+  stYearData={cols,rowsData,tot,label:`${months[0][0]}.${String(months[0][1]+1).padStart(2,'0')}~${months[months.length-1][0]}.${String(months[months.length-1][1]+1).padStart(2,'0')}`};
+}
+/* ── 정산 엑셀 — 지금 보고 있는 화면(월별/기간별) 그대로 ── */
+let stYearData=null, stMonthData=null;
+async function stLoadExcelJS(){
+  if(window.ExcelJS) return;
+  await new Promise((res,rej)=>{ const s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js'; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+}
+async function settleExcel(){
+  const y=stMode==='year';
+  if(y?!stYearData:!stLoaded){ showToast('⏳ 자료를 다 불러온 뒤 눌러 주세요'); return; }
+  try{ await stLoadExcelJS(); }catch(e){ showToast('❌ 엑셀 도구를 불러오지 못했습니다'); return; }
+  const wb=new ExcelJS.Workbook(), F={name:'맑은 고딕',size:10};
+  const ws=wb.addWorksheet('정산');
+  const head=row=>{ row.eachCell(c=>{ c.font={...F,bold:true}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFAF0E0'}}; c.border={bottom:{style:'thin',color:{argb:'FFC8A060'}}}; }); };
+  const bold=row=>row.eachCell(c=>{ c.font={...F,bold:true}; c.border={top:{style:'medium',color:{argb:'FF999999'}}}; });
+  const title=t=>{ const r=ws.addRow([t]); r.getCell(1).font={...F,size:14,bold:true,color:{argb:'FF8A6408'}}; ws.addRow([]); };
+  let fname;
+  if(y){
+    const {cols,rowsData,tot,label}=stYearData;
+    title(`어메이징풀빌라 기간 정산 ${label}`);
+    head(ws.addRow(['월',...cols.map(([,l])=>l)]));
+    rowsData.forEach(r=>ws.addRow([`${r.y}.${String(r.m+1).padStart(2,'0')}`,...cols.map(([k])=>Math.round(r[k]))]));
+    bold(ws.addRow(['합계',...cols.map(([k])=>Math.round(tot[k]))]));
+    ws.getColumn(1).width=9; cols.forEach(([,l],i)=>ws.getColumn(i+2).width=Math.max(10,l.length*1.6+2));
+    for(let c=2;c<=cols.length+1;c++) ws.getColumn(c).numFmt='#,##0;[Red]-#,##0;"-"';
+    fname=`어메이징풀빌라_정산_${label.replace('~','-')}.xlsx`;
+  }else{
+    const {rows,sales,paid}=stMonthData, f=JSON.parse(stFormState());
+    const num=v=>v===''||v==null?null:Number(v);
+    title(`어메이징풀빌라 ${stY}년 ${stM+1}월 정산`);
+    head(ws.addRow(['체크인','동','회사명','박','박당','총액','입금']));
+    rows.forEach(r=>ws.addRow([r.date,r.room,r.company,r.n,r.p,r.tot,r.paid?'입금':'미입금']));
+    bold(ws.addRow(['매출 합계','','','','',sales,'']));
+    ws.addRow(['입금 완료','','','','',paid,'']); ws.addRow(['미입금','','','','',sales-paid,'']);
+    ws.addRow([]);
+    head(ws.addRow(['지출','','','','','금액','']));
+    let exp=0; SETTLE_ITEMS.forEach(([k,l])=>{ const v=num(f[k]); exp+=v||0; ws.addRow([l,'','','','',v,'']); });
+    bold(ws.addRow(['지출 합계','','','','',exp,'']));
+    const net=ws.addRow(['순이익','','','','',sales-exp,'']); bold(net); net.getCell(6).font={...F,bold:true,size:12,color:{argb:sales-exp<0?'FFC0392B':'FF1E7A45'}};
+    if(f.miscItems.length){
+      ws.addRow([]); head(ws.addRow(['경상지출 상세','','','','','금액','']));
+      f.miscItems.forEach(i=>ws.addRow([i.n,'','','','',num(i.a),'']));
+    }
+    [10,7,20,5,9,12,8].forEach((w,i)=>ws.getColumn(i+1).width=w);
+    [5,6].forEach(c=>ws.getColumn(c).numFmt='#,##0;[Red]-#,##0;"-"');
+    fname=`어메이징풀빌라_정산_${stY}년${stM+1}월.xlsx`;
+  }
+  ws.eachRow(r=>r.eachCell(c=>{ if(!c.font||!c.font.bold) c.font={...F,...(c.font||{})}; }));
+  const buf=await wb.xlsx.writeBuffer();
+  const url=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  const a=document.createElement('a'); a.href=url; a.download=fname; a.click(); URL.revokeObjectURL(url);
+  showToast('📊 정산 엑셀 다운로드 완료');
 }
 async function settleMove(d){
   if(stLoaded&&stFormState()!==stSnap&&!confirm('저장하지 않은 지출 입력이 있습니다. 이동할까요?')) return;
@@ -1723,6 +1777,7 @@ async function renderSettle(){
     return {date:k.slice(5,10),room:(ROOMS[ri]||{}).no||'',company:d.company||'',n,p,tot:n*p,paid:!!d.paid};
   }).sort((a,b)=>a.date.localeCompare(b.date)||a.room.localeCompare(b.room));
   const sales=rows.reduce((s,r)=>s+r.tot,0), paid=rows.filter(r=>r.paid).reduce((s,r)=>s+r.tot,0);
+  stMonthData={rows,sales,paid};
   const td='padding:4px 8px;border-bottom:1px solid #f0f0f0;white-space:nowrap;';
   const list=rows.length?rows.map(r=>`<tr><td style="${td}">${r.date}</td><td style="${td}">${r.room}</td><td style="${td}">${esc(r.company)}</td><td style="${td}text-align:right">${r.n}</td><td style="${td}text-align:right">${r.p.toLocaleString()}</td><td style="${td}text-align:right;font-weight:600">${r.tot.toLocaleString()}</td><td style="${td}text-align:center;color:${r.paid?'#1e7a45':'#c0392b'}">${r.paid?'✓':'미입금'}</td></tr>`).join('')
     :`<tr><td colspan="7" style="padding:14px;text-align:center;color:#aaa">이 달 체크인 예약 없음</td></tr>`;
