@@ -1731,12 +1731,12 @@ async function settleExcel(){
     for(let c=2;c<=cols.length+1;c++) ws.getColumn(c).numFmt='#,##0;[Red]-#,##0;"-"';
     fname=`어메이징풀빌라_정산_${label.replace('~','-')}.xlsx`;
   }else{
-    const {rows,sales,paid}=stMonthData, f=JSON.parse(stFormState());
+    const {rows,sales,paid,nights,avg}=stMonthData, f=JSON.parse(stFormState());
     const num=v=>v===''||v==null?null:Number(v);
     title(`어메이징풀빌라 ${stY}년 ${stM+1}월 정산`);
     head(ws.addRow(['체크인','동','회사명','박','박당','총액','입금']));
     rows.forEach(r=>ws.addRow([r.date,r.room,r.company,r.n,r.p,r.tot,r.paid?'입금':'미입금']));
-    bold(ws.addRow(['매출 합계','','','','',sales,'']));
+    bold(ws.addRow(['매출 합계','','',nights,avg,sales,'']));
     ws.addRow(['입금 완료','','','','',paid,'']); ws.addRow(['미입금','','','','',sales-paid,'']);
     ws.addRow([]);
     head(ws.addRow(['지출','','','','','금액','']));
@@ -1777,7 +1777,9 @@ async function renderSettle(){
     return {date:k.slice(5,10),room:(ROOMS[ri]||{}).no||'',company:d.company||'',n,p,tot:n*p,paid:!!d.paid};
   }).sort((a,b)=>a.date.localeCompare(b.date)||a.room.localeCompare(b.room));
   const sales=rows.reduce((s,r)=>s+r.tot,0), paid=rows.filter(r=>r.paid).reduce((s,r)=>s+r.tot,0);
-  stMonthData={rows,sales,paid};
+  // 박수 합계 / 박당 평균(요금 입력된 예약만 — 0원 줄은 평균에서 뺌)
+  const nights=rows.reduce((s,r)=>s+r.n,0), pn=rows.filter(r=>r.p>0).reduce((s,r)=>s+r.n,0), avg=pn?Math.round(sales/pn):0;
+  stMonthData={rows,sales,paid,nights,avg};
   const td='padding:4px 8px;border-bottom:1px solid #f0f0f0;white-space:nowrap;';
   const list=rows.length?rows.map(r=>`<tr><td style="${td}">${r.date}</td><td style="${td}">${r.room}</td><td style="${td}">${esc(r.company)}</td><td style="${td}text-align:right">${r.n}</td><td style="${td}text-align:right">${r.p.toLocaleString()}</td><td style="${td}text-align:right;font-weight:600">${r.tot.toLocaleString()}</td><td style="${td}text-align:center;color:${r.paid?'#1e7a45':'#c0392b'}">${r.paid?'✓':'미입금'}</td></tr>`).join('')
     :`<tr><td colspan="7" style="padding:14px;text-align:center;color:#aaa">이 달 체크인 예약 없음</td></tr>`;
@@ -1792,12 +1794,15 @@ async function renderSettle(){
       <div class="st-box"><div>매출 (${rows.length}건)</div><b>${won(sales)}</b></div>
       <div class="st-box"><div>입금 완료</div><b style="color:#1e7a45">${won(paid)}</b></div>
       <div class="st-box"><div>미입금</div><b style="color:#c0392b">${won(sales-paid)}</b></div>
+      <div class="st-box"><div>총 박수</div><b>${nights}박</b></div>
+      <div class="st-box"><div>박당 평균 <span style="font-size:10px;color:#aaa">(요금 입력 ${pn}박)</span></div><b>${won(avg)}</b></div>
     </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
     <div style="flex:0 1 auto;max-width:100%;max-height:calc(90vh - 190px);min-height:120px;overflow:auto;border:1px solid #eee;border-radius:6px;">
       <table style="width:auto;min-width:0;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#faf6f0;position:sticky;top:0">
         <th style="${td}text-align:left">체크인</th><th style="${td}text-align:left">동</th><th style="${td}text-align:left">회사명</th><th style="${td}text-align:right">박</th><th style="${td}text-align:right">박당</th><th style="${td}text-align:right">총액</th><th style="${td}">입금</th>
-      </tr></thead><tbody>${list}</tbody></table>
+      </tr></thead><tbody>${list}</tbody>
+      ${rows.length?`<tfoot><tr style="background:#faf6f0;font-weight:700;position:sticky;bottom:0"><td style="${td}" colspan="3">합계</td><td style="${td}text-align:right">${nights}</td><td style="${td}text-align:right" title="박당 평균">${avg.toLocaleString()}</td><td style="${td}text-align:right">${sales.toLocaleString()}</td><td style="${td}"></td></tr></tfoot>`:''}</table>
     </div>
     <div style="flex:1 1 300px;min-width:280px;">
     <div style="font-size:12.5px;font-weight:700;color:#5a2d75;margin-bottom:4px;">지출</div>
