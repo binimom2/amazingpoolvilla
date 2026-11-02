@@ -241,7 +241,8 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
   td.td-memo{min-width:32px;max-width:44px;font-size:8px;padding:2px 3px;}
   td.td-paid{min-width:22px;max-width:22px;padding:2px 1px;}
   td.td-paid input[type=checkbox]{width:11px;height:11px;}
-  .modal{width:99vw;max-height:97vh;border-radius:8px;}
+  .modal{width:99vw;max-height:97vh;max-height:calc(var(--vvh,100dvh) - 12px);border-radius:8px;}
+  .overlay{top:var(--vvt,0px);bottom:auto;height:var(--vvh,100dvh);}
   .modal-body{padding:10px;}
   .fg{gap:8px;}
 }
@@ -492,6 +493,12 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
 <div class="toast" id="toast"></div>
 
 <script>
+// 모바일: 주소창·하단바·키보드를 뺀 실제 보이는 높이로 창 맞춤(저장 줄 가려짐 방지, 1102)
+(function(){
+  const vv=window.visualViewport; if(!vv) return;
+  const fit=()=>{if(!(vv.height>100)) return; const s=document.documentElement.style;s.setProperty('--vvh',vv.height+'px');s.setProperty('--vvt',vv.offsetTop+'px');};
+  vv.addEventListener('resize',fit); vv.addEventListener('scroll',fit); fit();
+})();
 // ── 3단계 권한 시스템 ─────────────────────────────────────
 const ADMIN_ID='syc1006';
 const ADMIN_PW_DEFAULT='123456';
