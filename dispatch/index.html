@@ -855,33 +855,75 @@ function sKey(y,m){return `villa_${y}_${String(m+1).padStart(2,'0')}`;}
    손에 없는 달을 「비었다」고 저장해 버리면 그 달이 통째로 날아간다. */
 const loadedMonths=new Set();
 
-async function doSave(){
-  const byM={};
-  Object.entries(allData).forEach(([k,v])=>{
-    const date=k.split('_')[0];const[y,mo]=date.split('-');
-    const mk=`villa_${y}_${mo}`;if(!byM[mk])byM[mk]={};byM[mk][k]=v;
+/* ══════ 저장 = 「내가 바꾼 칸만」 서버 최신본에 얹기 (1117) ══════
+   예전엔 화면이 들고 있는 그 달을 통째로 덮어썼다. 그래서
+     · 다른 PC(또는 다른 창)에 옛 화면이 열려 있으면, 그 화면이 뭐든 저장할 때
+       이미 옮긴 예약이 옛 자리에 「흔적」으로 되살아났고(12/16 박군투어 건),
+     · 거꾸로 남이 막 넣은 예약을 지워 버릴 수도 있었다.
+   이제는 불러온 때의 모습(monthBase)과 지금 화면을 비교해 바뀐 칸만 골라
+   서버 최신본에 얹고, 그 사이 남이 저장했으면(updated_at 다름) 다시 읽어 얹는다. */
+const monthBase={};   // 달 → 마지막으로 서버와 맞춘 그 달 자료(JSON 문자열 묶음)
+function mkOf(k){const[y,mo]=k.split('_')[0].split('-');return `villa_${y}_${mo}`;}
+function monthSlice(mk){
+  const o={};
+  Object.keys(allData).forEach(k=>{ if(mkOf(k)===mk) o[k]=allData[k]; });
+  return o;
+}
+function setMonth(mk,obj){
+  Object.keys(allData).forEach(k=>{ if(mkOf(k)===mk) delete allData[k]; });
+  Object.assign(allData,JSON.parse(JSON.stringify(obj||{})));
+  const b={}; Object.entries(obj||{}).forEach(([k,v])=>{ b[k]=JSON.stringify(v); });
+  monthBase[mk]=b;
+}
+async function saveMonth(mk){
+  const mine=monthSlice(mk), base=monthBase[mk]||{};
+  const changes=[];   // [키, 새 값 또는 null(지움)]
+  new Set([...Object.keys(mine),...Object.keys(base)]).forEach(k=>{
+    const now=k in mine?JSON.stringify(mine[k]):undefined;
+    if(now!==base[k]) changes.push([k,k in mine?mine[k]:null]);
   });
-  /* ⚠ 그 달의 마지막 예약을 옮기거나 지우면 byM 에서 그 달 자체가 사라진다.
-     예전엔 사라진 달을 저장하지 않아 Supabase 에 옛 자료가 그대로 남았고,
-     새로고침하면 옮기기 전 예약이 「잔여분」으로 되살아났다(11/26→1/14 건).
-     읽어 둔 달은 비었더라도 빈 채로 저장해, 지운 것이 진짜로 지워지게 한다. */
-  loadedMonths.forEach(mk=>{ if(!byM[mk]) byM[mk]={}; });
-  let hasError=false;
-  for(const[k,v] of Object.entries(byM)){
-    const{error}=await sb.from('villa_data').upsert({data_key:k,data:v,updated_at:new Date().toISOString()});
-    if(error){hasError=true;console.error('저장 오류:',error);}
+  if(!changes.length) return true;
+  for(let tries=0;tries<4;tries++){
+    const{data:row,error:re}=await sb.from('villa_data').select('data,updated_at').eq('data_key',mk).maybeSingle();
+    if(re){console.error('저장 전 읽기 오류:',re);return false;}
+    const merged=JSON.parse(JSON.stringify((row&&row.data)||{}));
+    changes.forEach(([k,v])=>{ if(v===null) delete merged[k]; else merged[k]=v; });
+    const now=new Date().toISOString();
+    let ok=false, err=null;
+    if(row){
+      const{data:upd,error}=await sb.from('villa_data').update({data:merged,updated_at:now})
+        .eq('data_key',mk).eq('updated_at',row.updated_at).select('data_key');
+      err=error; ok=!error&&upd&&upd.length>0;
+    }else{
+      const{error}=await sb.from('villa_data').insert({data_key:mk,data:merged,updated_at:now});
+      err=error; ok=!error;
+      if(error&&error.code!=='23505'){console.error('저장 오류:',error);return false;}
+    }
+    if(err&&row){console.error('저장 오류:',err);return false;}
+    if(ok){ setMonth(mk,merged); return true; }
+    /* 그 사이 누가 저장함 → 최신본 다시 읽어 내 변경만 다시 얹는다 */
   }
-  if(hasError) showToast('❌ 저장 실패: '+((await sb.from('villa_data').upsert({data_key:'_test',data:{},updated_at:new Date().toISOString()})).error?.message||'Supabase 연결 오류'));
+  console.error('저장 충돌이 계속됨:',mk);
+  return false;
+}
+async function doSave(){
+  const months=new Set(Object.keys(monthBase));
+  Object.keys(allData).forEach(k=>months.add(mkOf(k)));
+  let hasError=false;
+  for(const mk of months){ if(!(await saveMonth(mk))) hasError=true; }
+  if(hasError) showToast('❌ 저장 실패 — 새로고침 후 다시 해 주세요');
+  return !hasError;
 }
 
 async function loadMonth(y,m){
   const key=sKey(y,m);
-  const{data,error}=await sb.from('villa_data').select('data').eq('data_key',key).single();
-  /* PGRST116 = 그 달 줄이 아직 없음(정상, 빈 달). 그 밖의 오류는 「못 읽었다」는 뜻이니
-     읽은 달 목록에 넣지 않는다 — 안 넣어야 저장할 때 빈 달로 덮어쓰지 않는다. */
-  if(error&&error.code!=='PGRST116'){ console.error('불러오기 오류:',error); return; }
+  const{data,error}=await sb.from('villa_data').select('data').eq('data_key',key).maybeSingle();
+  /* 줄이 없으면 빈 달(정상). 읽기 오류면 손대지 않는다 */
+  if(error){ console.error('불러오기 오류:',error); return; }
   loadedMonths.add(key);
-  if(data&&data.data) Object.assign(allData,data.data);
+  /* 그 달을 서버 모습 그대로 「바꿔 끼운다」 — 예전 Object.assign 은 서버에서 지워진
+     예약을 화면에 남겨 두었다가 다음 저장 때 되살렸다 */
+  setMonth(key,(data&&data.data)||{});
 }
 /* 화면에는 앞 달 끝자락과 다음 달 앞자락까지 같이 나오므로(이월팀),
    그 달만이 아니라 앞뒤 달까지 손에 들고 있어야 빈칸으로 보이지 않는다. */
