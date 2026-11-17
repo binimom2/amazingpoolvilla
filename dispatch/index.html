@@ -1625,26 +1625,55 @@ async function confirmAmend(newDate){
 }
 
 /* ── AMEND 호수변경 ── */
+/* 그 방에서 startStr부터 nights박 동안 겹치는 예약(체크인 키) 목록 */
+function blocksIn(startStr,ri,nights){
+  const out=[];
+  for(let i=0;i<nights;i++){
+    const d=parseDate(startStr); d.setDate(d.getDate()+i);
+    const b=getBlock(fmt(d),ri);
+    if(b.ck&&out.indexOf(b.ck)<0) out.push(b.ck);
+  }
+  return out;
+}
+/* 다른 방으로 옮길 수 있는지 — 'move'(비어 있음) / {swap:키}(그 방 예약 하나와 맞바꾸기 가능) / null(불가)
+   맞바꾸기: 이 예약은 날짜 그대로 그 방으로, 그 방 예약도 날짜 그대로 이 방으로.
+   양쪽 다 상대 예약 말고는 겹치는 게 없어야 한다. */
+function roomOption(ck,newRi){
+  const[fromDate,ris]=ck.split('_'); const ri=parseInt(ris);
+  const n=parseInt((allData[ck]||{}).nights)||1;
+  const hits=blocksIn(fromDate,newRi,n);
+  if(!hits.length) return 'move';
+  if(hits.length!==1) return null;
+  const ck2=hits[0], d2=ck2.split('_')[0];
+  const n2=parseInt((allData[ck2]||{}).nights)||1;
+  if(rangeConflict(d2,ri,n2,[ck])) return null;
+  return {swap:ck2};
+}
 function openAmendRoom(){
   const fromDate=editKey.split('_')[0];
   const ri=parseInt(editKey.split('_')[1]);
   const body=document.getElementById('amend-room-inner');
   body.innerHTML=ROOMS.map((r,i)=>{
     if(i===ri) return '';
-    const occupied=!!allData[`${fromDate}_${i}`];
-    const bg=occupied?'#f5f5f5':'#f0fff8';
-    const border=occupied?'#ddd':'#0d7a6e';
-    const color=occupied?'#aaa':'#0d7a6e';
-    const cursor=occupied?'default':'pointer';
-    const click=occupied?'':` onclick="confirmAmendRoom(${i})"`;
+    const opt=roomOption(editKey,i);
+    const sw=opt&&opt.swap?allData[opt.swap]:null;
+    const bg=!opt?'#f5f5f5':sw?'#fff8ec':'#f0fff8';
+    const border=!opt?'#ddd':sw?'#c8843a':'#0d7a6e';
+    const color=!opt?'#aaa':sw?'#8a5300':'#0d7a6e';
+    const cursor=opt?'pointer':'default';
+    const click=!opt?'':sw?` onclick="confirmSwapRoom(${i},'${opt.swap}')"`:` onclick="confirmAmendRoom(${i})"`;
+    const tag=!opt
+      ? '<span style="font-size:11px;color:#c00;background:#ffe0e0;padding:3px 8px;border-radius:10px;">예약 있음</span>'
+      : sw
+      ? '<span style="font-size:11px;color:#8a5300;background:#fde8c8;padding:3px 8px;border-radius:10px;">⇄ 교체</span>'
+      : '<span style="font-size:11px;color:#0d7a6e;background:#d4f5ee;padding:3px 8px;border-radius:10px;">선택 가능 ▶</span>';
+    const swInfo=sw?`<div style="font-size:11px;color:#8a5300;margin-top:2px;">${esc(sw.company||sw.guest||'')} · ${opt.swap.split('_')[0].slice(5)} ${sw.nights||1}박</div>`:'';
     return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1.5px solid ${border};border-radius:8px;background:${bg};cursor:${cursor};margin-bottom:8px;"${click}>
       <div>
-        <div style="font-size:14px;font-weight:700;color:${color};">${r.no}</div>
-        <div style="font-size:11px;color:#888;">${r.bed}</div>
+        <div style="font-size:14px;font-weight:700;color:${color};">${r.no} <span style="font-size:11px;color:#888;font-weight:400;">${r.bed}</span></div>
+        ${swInfo}
       </div>
-      ${occupied
-        ? '<span style="font-size:11px;color:#c00;background:#ffe0e0;padding:3px 8px;border-radius:10px;">예약 있음</span>'
-        : '<span style="font-size:11px;color:#0d7a6e;background:#d4f5ee;padding:3px 8px;border-radius:10px;">선택 가능 ▶</span>'}
+      ${tag}
     </div>`;
   }).join('');
   const fromRoom=ROOMS[ri];
@@ -1658,6 +1687,7 @@ async function confirmAmendRoom(newRi){
   const fromDate=editKey.split('_')[0];
   const ri=parseInt(editKey.split('_')[1]);
   const fromRoom=ROOMS[ri].no, toRoom=ROOMS[newRi].no;
+  if(roomOption(editKey,newRi)!=='move'){showToast(`⚠ ${toRoom}에 겹치는 예약이 있습니다`);return;}
   if(!confirm(`${fromRoom} → ${toRoom} 으로 호수를 변경할까요?\n날짜: ${fromDate}`)) return;
   const d={...allData[editKey]};
   const hist=d.amendHistory||[];
@@ -1672,6 +1702,31 @@ async function confirmAmendRoom(newRi){
   closeAmendRoom();
   closeModal();
   showToast(`✅ ${fromRoom} → ${toRoom} 호수변경 완료`);
+}
+
+/* 두 방 예약 맞바꾸기 — 날짜는 각자 그대로, 방만 서로 바꾼다 */
+async function confirmSwapRoom(newRi,ck2){
+  const ck1=editKey;
+  const ri=parseInt(ck1.split('_')[1]);
+  const opt=roomOption(ck1,newRi);
+  if(!opt||opt.swap!==ck2){showToast('⚠ 그 사이 예약이 바뀌어 교체할 수 없습니다');return;}
+  const a=allData[ck1], b=allData[ck2];
+  const d1=ck1.split('_')[0], d2=ck2.split('_')[0];
+  const r1=ROOMS[ri].no, r2=ROOMS[newRi].no;
+  const nm=o=>o.company||o.guest||'예약';
+  if(!confirm(`두 예약의 호실을 서로 바꿀까요?\n\n${nm(a)} (${d1} ${a.nights||1}박) : ${r1} → ${r2}\n${nm(b)} (${d2} ${b.nights||1}박) : ${r2} → ${r1}`)) return;
+  const movedAt=new Date().toISOString();
+  const na={...a, amendHistory:(a.amendHistory||[]).concat([{from:`${d1} ${r1}`,to:`${d1} ${r2}`,movedAt}])};
+  const nb={...b, amendHistory:(b.amendHistory||[]).concat([{from:`${d2} ${r2}`,to:`${d2} ${r1}`,movedAt}])};
+  delete allData[ck1]; delete allData[ck2];
+  allData[`${d1}_${newRi}`]=na;
+  allData[`${d2}_${ri}`]=nb;
+  editKey=`${d1}_${newRi}`;
+  await doSave();
+  buildBody();
+  closeAmendRoom();
+  closeModal();
+  showToast(`✅ ${r1} ⇄ ${r2} 교체 완료`);
 }
 
 function openCancelModal(){
