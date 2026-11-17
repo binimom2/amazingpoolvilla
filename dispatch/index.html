@@ -299,6 +299,7 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
   <button class="tbtn" onclick="goPrev()">◀ 이전달</button>
   <button class="tbtn" onclick="goNext()">다음달 ▶</button>
   <div style="margin-left:auto;display:flex;gap:6px;">
+    <span id="loadRate" style="align-self:center;font-size:12px;font-weight:700;color:#0d3d6b;background:#e3f0fb;border:1px solid #1a5fa0;border-radius:6px;padding:4px 10px;white-space:nowrap;"></span>
     <button class="tbtn" onclick="window.print()">🖨 인쇄</button>
     <button class="tbtn" id="excelBtn" style="background:#1d6f42;color:#fff;border-color:#1d6f42;" onclick="downloadExcel()">📊 엑셀저장</button>
     <button class="tbtn" id="cancelListBtn" style="background:#7b3fa0;color:#fff;border-color:#7b3fa0;" onclick="openCancelModal()">📋 취소 목록</button>
@@ -1018,7 +1019,20 @@ function buildHead(){
    예) 11월을 열면 10-25 ~ 12-05 까지 나온다. */
 const PAD_BEFORE=7, PAD_AFTER=5;
 
+/* 그 달 로드율 = 그 달 날짜에 묵는 객실박 ÷ (객실 수 × 그 달 일수). 앞 달에서 넘어온 팀도 이 달 날짜만큼 센다 */
+function updateLoadRate(){
+  const el=document.getElementById('loadRate'); if(!el) return;
+  const days=new Date(curY,curM+1,0).getDate();
+  let used=0;
+  for(let d=1;d<=days;d++){
+    const ds=fmt(new Date(curY,curM,d));
+    ROOMS.forEach((r,i)=>{ if(getBlock(ds,i).state!=='empty') used++; });
+  }
+  const total=days*ROOMS.length;
+  el.textContent=`로드율 ${Math.round(used/total*100)}% · ${used}/${total}박`;
+}
 function buildBody(){
+  updateLoadRate();
   const tbody=document.getElementById('tBody');
   const today=new Date();today.setHours(0,0,0,0);
   const start=new Date(curY,curM,1-PAD_BEFORE);      // 이 달 1일에서 7일 앞
