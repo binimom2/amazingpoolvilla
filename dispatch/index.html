@@ -300,6 +300,7 @@ td.td-paid input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-col
   <button class="tbtn" onclick="goNext()">다음달 ▶</button>
   <div style="margin-left:auto;display:flex;gap:6px;">
     <span id="loadRate" style="align-self:center;font-size:12px;font-weight:700;color:#0d3d6b;background:#e3f0fb;border:1px solid #1a5fa0;border-radius:6px;padding:4px 10px;white-space:nowrap;"></span>
+    <span id="loadRateByColor" style="align-self:center;display:flex;gap:3px;flex-wrap:wrap;"></span>
     <button class="tbtn" onclick="window.print()">🖨 인쇄</button>
     <button class="tbtn" id="excelBtn" style="background:#1d6f42;color:#fff;border-color:#1d6f42;" onclick="downloadExcel()">📊 엑셀저장</button>
     <button class="tbtn" id="cancelListBtn" style="background:#7b3fa0;color:#fff;border-color:#7b3fa0;" onclick="openCancelModal()">📋 취소 목록</button>
@@ -1023,13 +1024,24 @@ const PAD_BEFORE=7, PAD_AFTER=5;
 function updateLoadRate(){
   const el=document.getElementById('loadRate'); if(!el) return;
   const days=new Date(curY,curM+1,0).getDate();
-  let used=0;
+  let used=0; const byColor={};
   for(let d=1;d<=days;d++){
     const ds=fmt(new Date(curY,curM,d));
-    ROOMS.forEach((r,i)=>{ if(getBlock(ds,i).state!=='empty') used++; });
+    ROOMS.forEach((r,i)=>{
+      const b=getBlock(ds,i); if(b.state==='empty') return;
+      used++;
+      const c=PALETTE[b.data.color]?b.data.color:0;
+      byColor[c]=(byColor[c]||0)+1;
+    });
   }
   const total=days*ROOMS.length;
   el.textContent=`로드율 ${Math.round(used/total*100)}% · ${used}/${total}박`;
+  /* 칼라(에이전트)별 로드율: 그 칼라 객실박 ÷ 전체 객실박 — 다 더하면 전체 로드율 */
+  const box=document.getElementById('loadRateByColor'); if(!box) return;
+  box.innerHTML=Object.keys(byColor).map(Number).sort((a,b)=>byColor[b]-byColor[a]).map(c=>{
+    const p=PALETTE[c], n=byColor[c];
+    return `<span title="${n}박" style="font-size:12px;font-weight:700;background:${p.bg};color:${p.tx};border:1px solid ${p.bd};border-radius:6px;padding:4px 7px;white-space:nowrap;">${Math.round(n/total*100)}%</span>`;
+  }).join('');
 }
 function buildBody(){
   updateLoadRate();
