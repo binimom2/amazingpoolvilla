@@ -1886,8 +1886,8 @@ function stLoad(got,y,m){
       }
     });
   }
-  /* 칼라 이름 = 그 칼라로 가장 많이 묵은 회사, 여럿이면 「토토 외」 */
-  const name={}; Object.keys(byCo).forEach(c=>{ const e=Object.entries(byCo[c]).sort((a,b)=>b[1]-a[1]); name[c]=e[0][0]+(e.length>1?' 외':''); });
+  /* 칼라 이름 = 그 칼라로 가장 많이 묵은 회사 */
+  const name={}; Object.keys(byCo).forEach(c=>{ const e=Object.entries(byCo[c]).sort((a,b)=>b[1]-a[1]); name[c]=e[0][0]; });
   return {used:seen.size,total:days*ROOMS.length,byC,name,byCo};
 }
 const stLoadKeys=(y,m)=>[0,1,2,3].map(i=>{ const d=new Date(y,m-i,1); return sKey(d.getFullYear(),d.getMonth()); });
@@ -1900,7 +1900,6 @@ async function settleExcel(){
   const lMonths=y?stYearData.rowsData.map(r=>[r.y,r.m]):[[stY,stM]];
   const lGot=await stFetch([...new Set(lMonths.flatMap(([a,b])=>stLoadKeys(a,b)))]);
   if(!lGot) showToast('⚠ 로드율 자료를 못 읽어 로드율 없이 내려받습니다');
-  const pctCells=[];
   const wb=new ExcelJS.Workbook(), F={name:'맑은 고딕',size:10};
   const ws=wb.addWorksheet('정산');
   const head=row=>{ row.eachCell(c=>{ c.font={...F,bold:true}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFAF0E0'}}; c.border={bottom:{style:'thin',color:{argb:'FFC8A060'}}}; }); };
@@ -1944,36 +1943,52 @@ async function settleExcel(){
   }else{
     const {rows,sales,paid,nights,avg}=stMonthData, f=JSON.parse(stFormState());
     const num=v=>v===''||v==null?null:Number(v);
-    title(`어메이징풀빌라 ${stY}년 ${stM+1}월 정산`);
-    head(ws.addRow(['체크인','동','회사명','박','박당','총액','입금']));
-    rows.forEach(r=>ws.addRow([r.date,r.room,r.company,r.n,r.p,r.tot,r.paid?'입금':'미입금']));
-    bold(ws.addRow(['매출 합계','','',nights,avg,sales,'']));
-    ws.addRow(['입금 완료','','','','',paid,'']); ws.addRow(['미입금','','','','',sales-paid,'']);
-    ws.addRow([]);
-    /* 로드율 — 전체 한 줄 + 칼라(에이전트)별 줄(첫 칸을 그 칼라로 칠함). 박 칸 = 객실박, 총액 칸 자리 = %.
-       % 칸 서식은 아래에서 총액 열 서식(#,##0)을 입힌 «뒤에» 다시 건다 — 먼저 걸면 열 서식이 덮어써 0으로 보였다(1118) */
+    /* ── 1장 「정산」 = 한눈에 보는 정산서(사장님 2026-11-18 양식) ──
+         제목(가운데) → 로드율(이름 · 객실박 · % ) → 지출 → 지출 합계 · 순이익.
+         4칸만 쓴다: A 이름/항목 · B 객실박 · C 숫자(%·금액) · D 「%」 글자.
+       ── 2장 「예약 목록」 = 그 달 체크인 예약과 매출·입금 합계(예전 1장 위쪽) */
+    const C=(r,i,o)=>{ const c=r.getCell(i); Object.assign(c,o); return c; };
+    const t=ws.addRow([`풀빌라 ${stM+1}월 정산서`]); ws.mergeCells(t.number,1,t.number,4);
+    C(t,1,{font:{...F,size:14,bold:true},alignment:{horizontal:'center'}}); t.height=24;
     if(lGot){
-      const l=stLoad(lGot,stY,stM), pct=(r,v)=>{ const c=r.getCell(6); c.value=v; pctCells.push(c); };
-      head(ws.addRow(['로드율','','','객실박','','%','']));
-      const all=ws.addRow(['전체','','',`${l.used}/${l.total}`,'','','']); pct(all,l.used/l.total); bold(all);
-      Object.keys(l.byC).map(Number).sort((a,b)=>l.byC[b]-l.byC[a]).forEach(c=>{
-        const r=ws.addRow(['칼라'+(c+1),l.name[c]||'','',l.byC[c],'','','']); pct(r,l.byC[c]/l.total);
-        r.getCell(1).fill={type:'pattern',pattern:'solid',fgColor:{argb:argbOf(PALETTE[c].bg)}};
-        r.getCell(1).border={left:{style:'thick',color:{argb:argbOf(PALETTE[c].bd)}}};
-      });
+      const l=stLoad(lGot,stY,stM), p=n=>Math.round(n/l.total*100);
+      const h=ws.addRow(['로드율','객실박','%','']); head(h); ws.mergeCells(h.number,3,h.number,4);
+      C(h,2,{alignment:{horizontal:'center'}}); C(h,3,{alignment:{horizontal:'center'}});
+      const line=(name,nights,pc,c,isAll)=>{
+        const r=ws.addRow([name,nights,pc,'%']);
+        C(r,2,{alignment:{horizontal:'center'}}); C(r,3,{alignment:{horizontal:'right'},font:{...F,bold:true}});
+        if(isAll) C(r,1,{font:{...F,bold:true}}), C(r,2,{font:{...F,bold:true}});
+        if(c!=null){ C(r,1,{fill:{type:'pattern',pattern:'solid',fgColor:{argb:argbOf(PALETTE[c].bg)}},
+          border:{left:{style:'thick',color:{argb:argbOf(PALETTE[c].bd)}}}}); }
+      };
+      line('전체',`${l.used}/${l.total}`,p(l.used),null,true);
+      Object.keys(l.byC).map(Number).sort((a,b)=>l.byC[b]-l.byC[a])
+        .forEach(c=>line(l.name[c]||('칼라'+(c+1)),l.byC[c],p(l.byC[c]),c,false));
       ws.addRow([]);
     }
-    head(ws.addRow(['지출','','','','','금액','']));
-    let exp=0; SETTLE_ITEMS.forEach(([k,l])=>{ const v=num(f[k]); exp+=v||0; ws.addRow([l,'','','','',v,'']); });
-    bold(ws.addRow(['지출 합계','','','','',exp,'']));
-    const net=ws.addRow(['순이익','','','','',sales-exp,'']); bold(net); net.getCell(6).font={...F,bold:true,size:12,color:{argb:sales-exp<0?'FFC0392B':'FF1E7A45'}};
+    const eh=ws.addRow(['지출','','금액','']); head(eh); ws.mergeCells(eh.number,3,eh.number,4); C(eh,3,{alignment:{horizontal:'center'}});
+    const money=r=>{ C(r,3,{numFmt:'#,##0;[Red]-#,##0;"-"'}); ws.mergeCells(r.number,3,r.number,4); };
+    let exp=0; SETTLE_ITEMS.forEach(([k,lb])=>{ const v=num(f[k]); exp+=v||0; money(ws.addRow([lb,'',v,''])); });
+    const er=ws.addRow(['지출 합계','',exp,'']); bold(er); money(er);
+    const net=ws.addRow(['순이익','',sales-exp,'']); bold(net); money(net);
+    C(net,3,{font:{...F,bold:true,size:12,color:{argb:sales-exp<0?'FFC0392B':'FF1E7A45'}}});
     if(f.miscItems.length){
-      ws.addRow([]); head(ws.addRow(['경상지출 상세','','','','','금액','']));
-      f.miscItems.forEach(i=>ws.addRow([i.n,'','','','',num(i.a),'']));
+      ws.addRow([]); const mh=ws.addRow(['경상지출 상세','','금액','']); head(mh); ws.mergeCells(mh.number,3,mh.number,4);
+      f.miscItems.forEach(i=>money(ws.addRow([i.n,'',num(i.a),''])));
     }
-    [10,7,20,5,9,12,8].forEach((w,i)=>ws.getColumn(i+1).width=w);
-    [5,6].forEach(c=>ws.getColumn(c).numFmt='#,##0;[Red]-#,##0;"-"');
-    pctCells.forEach(c=>{ c.numFmt='0%'; c.alignment={horizontal:'right'}; });
+    [16,10,10,4].forEach((w,i)=>ws.getColumn(i+1).width=w);
+    /* 2장 — 예약 목록 */
+    const ws2=wb.addWorksheet('예약 목록');
+    const t2=ws2.addRow([`풀빌라 ${stM+1}월 예약 목록`]); t2.getCell(1).font={...F,size:14,bold:true}; ws2.addRow([]);
+    const head2=r=>{ r.eachCell(c=>{ c.font={...F,bold:true}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFAF0E0'}}; c.border={bottom:{style:'thin',color:{argb:'FFC8A060'}}}; }); };
+    const bold2=r=>r.eachCell(c=>{ c.font={...F,bold:true}; c.border={top:{style:'medium',color:{argb:'FF999999'}}}; });
+    head2(ws2.addRow(['체크인','동','회사명','박','박당','총액','입금']));
+    rows.forEach(r=>ws2.addRow([r.date,r.room,r.company,r.n,r.p,r.tot,r.paid?'입금':'미입금']));
+    bold2(ws2.addRow(['매출 합계','','',nights,avg,sales,'']));
+    ws2.addRow(['입금 완료','','','','',paid,'']); ws2.addRow(['미입금','','','','',sales-paid,'']);
+    [10,7,20,5,9,12,8].forEach((w,i)=>ws2.getColumn(i+1).width=w);
+    [5,6].forEach(c=>ws2.getColumn(c).numFmt='#,##0;[Red]-#,##0;"-"');
+    ws2.eachRow(r=>r.eachCell(c=>{ if(!c.font||!c.font.bold) c.font={...F,...(c.font||{})}; }));
     fname=`어메이징풀빌라_정산_${stY}년${stM+1}월.xlsx`;
   }
   ws.eachRow(r=>r.eachCell(c=>{ if(!c.font||!c.font.bold) c.font={...F,...(c.font||{})}; }));
